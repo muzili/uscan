@@ -123,12 +123,14 @@ fn parse_stream(data: &[u8]) -> Option<Device> {
         protocol: "CyberPower".into(),
         version: 1,
         ip: ip.into(),
-        // C# TODO 注释保留原样：deviceName 暂代 deviceModel
+        // TODO: replace deviceName by devideModel and try to detect it
+        // TODO: known type values are 2=ATS / 3=BM / 4=Data Logger / 1=PDU / 0=UPS
         device_type: device_name,
+        // C# PhysicalAddress.ToString()（.NET Framework）：大写 hex、无分隔符
         serial: format!(
-            "{:02X}-{:02X}-{:02X}-{:02X}-{:02X}-{:02X}",
+            "{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
-        ), // C# PhysicalAddress.ToString()
+        ),
     })
 }
 
@@ -223,7 +225,7 @@ mod tests {
             "240.0.28.0".parse::<std::net::IpAddr>().unwrap()
         );
         assert_eq!(devs[0].device_type, "PDU1");
-        assert_eq!(devs[0].serial, "00-11-22-33-44-55"); // C# PhysicalAddress.ToString()
+        assert_eq!(devs[0].serial, "001122334455"); // C# PhysicalAddress.ToString()（无分隔符）
     }
 
     #[test]
