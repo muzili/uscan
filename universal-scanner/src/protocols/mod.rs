@@ -1,6 +1,7 @@
 //! 引擎注册表（T17 框架；各协议模块随任务逐个创建，T18 起）。
 
 pub mod bosch;
+pub mod cyberpower;
 pub mod dahua1;
 pub mod dahua2;
 pub mod gige;
@@ -23,6 +24,10 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
         (5, || std::sync::Arc::new(hikvision::Hikvision::default())),
         (7, || std::sync::Arc::new(bosch::Bosch::default())),
         (17, || std::sync::Arc::new(gige::GigEVision::default())),
+        (
+            28,
+            || std::sync::Arc::new(cyberpower::CyberPower::default()),
+        ),
     ];
     builders.iter().map(|(id, b)| (*id, b())).collect()
 }
