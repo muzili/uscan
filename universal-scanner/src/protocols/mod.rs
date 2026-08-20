@@ -6,6 +6,7 @@ pub mod dahua1;
 pub mod dahua2;
 pub mod eaton;
 pub mod eden;
+pub mod foscam;
 pub mod gige;
 pub mod hikvision;
 pub mod ssdp;
@@ -27,6 +28,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
         (7, || std::sync::Arc::new(bosch::Bosch::default())),
         (17, || std::sync::Arc::new(gige::GigEVision::default())),
         (19, || std::sync::Arc::new(eaton::Eaton::default())),
+        (20, || std::sync::Arc::new(foscam::Foscam::default())),
         (26, || std::sync::Arc::new(eden::Eden::default())),
         (
             28,
