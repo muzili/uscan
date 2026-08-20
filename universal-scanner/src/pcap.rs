@@ -1,4 +1,4 @@
-//! pcap：极简 writer（magic 0xa1b2c3d4）与 libpcap 被动捕获/sendpacket 注入封装。
+//! pcap：极简 IPv4-only writer（magic 0xa1b2c3d4，C# PCapFile 对齐）。
 
 use std::fs::File;
 use std::io::Write;
