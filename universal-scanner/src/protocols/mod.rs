@@ -10,6 +10,7 @@ pub mod foscam;
 pub mod gige;
 pub mod hanwha;
 pub mod hikvision;
+pub mod lantronix;
 pub mod ssdp;
 pub mod wsd;
 
@@ -31,6 +32,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
         (17, || std::sync::Arc::new(gige::GigEVision::default())),
         (19, || std::sync::Arc::new(eaton::Eaton::default())),
         (20, || std::sync::Arc::new(foscam::Foscam::default())),
+        (23, || std::sync::Arc::new(lantronix::Lantronix::default())),
         (26, || std::sync::Arc::new(eden::Eden::default())),
         (
             28,
