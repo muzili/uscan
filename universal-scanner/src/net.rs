@@ -11,10 +11,13 @@ fn make_udp() -> socket2::Socket {
         .expect("create udp socket")
 }
 
-fn to_tokio(sock: socket2::Socket) -> std::io::Result<UdpSocket> {
+/// 绑定后拆双份：tokio 版（recv_loop 用）+ socket2 版（SocketSet 同步 send_to 用）。
+/// 同 fd 的 dup，共享阻塞模式；recv 侧先转非阻塞。
+fn to_pair(sock: socket2::Socket) -> std::io::Result<(UdpSocket, socket2::Socket)> {
+    let dup = sock.try_clone()?;
     sock.set_nonblocking(true)?;
     let std_sock = unsafe { std::net::UdpSocket::from_raw_fd(sock.into_raw_fd()) };
-    UdpSocket::from_std(std_sock)
+    Ok((UdpSocket::from_std(std_sock)?, dup))
 }
 
 /// C# isFreeUdpPort 语义：无 REUSEADDR 试绑判断占用。
@@ -29,7 +32,7 @@ pub fn udp_bind_global(
     port_sharing: bool,
     logger: &Logger,
     task_id: u32,
-) -> crate::Result<Option<UdpSocket>> {
+) -> crate::Result<Option<(UdpSocket, socket2::Socket)>> {
     if probe_port_in_use(port) {
         if !port_sharing {
             logger.warn(
@@ -47,17 +50,21 @@ pub fn udp_bind_global(
     sock.set_reuse_address(true)?;
     sock.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)).into())?;
     sock.set_broadcast(true)?;
-    Ok(Some(to_tokio(sock)?))
+    Ok(Some(to_pair(sock)?))
 }
 
 /// C# listenUdpInterfaces：每个网卡 IPv4 地址绑 <ip>:free_port。
-pub fn udp_bind_interface(addr: Ipv4Addr, port: u16) -> crate::Result<(SocketAddr, UdpSocket)> {
+pub fn udp_bind_interface(
+    addr: Ipv4Addr,
+    port: u16,
+) -> crate::Result<(SocketAddr, UdpSocket, socket2::Socket)> {
     let sock = make_udp();
     sock.set_reuse_address(true)?;
     let local = SocketAddr::from((addr, port));
     sock.bind(&local.into())?;
     sock.set_broadcast(true)?;
-    Ok((local, to_tokio(sock)?))
+    let (tokio_sock, sync_sock) = to_pair(sock)?;
+    Ok((local, tokio_sock, sync_sock))
 }
 
 /// C# listenMulticast：0.0.0.0:port + 每个有 IPv4 的网卡 IP_ADD_MEMBERSHIP。
@@ -67,7 +74,7 @@ pub fn udp_bind_multicast(
     iface_ips: &[Ipv4Addr],
     logger: &Logger,
     task_id: u32,
-) -> crate::Result<UdpSocket> {
+) -> crate::Result<(UdpSocket, socket2::Socket)> {
     let sock = make_udp();
     sock.set_reuse_address(true)?;
     sock.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)).into())?;
@@ -82,7 +89,7 @@ pub fn udp_bind_multicast(
         }
     }
     sock.set_broadcast(true)?;
-    to_tokio(sock).map_err(Into::into)
+    to_pair(sock).map_err(Into::into)
 }
 
 pub fn leave_multicast(sock: &UdpSocket, group: Ipv4Addr, iface_ips: &[Ipv4Addr]) {
@@ -134,6 +141,60 @@ pub async fn recv_loop(
     }
 }
 
+/// C# ScanEngine 的 socket 列表 + send() 的"从所有活动 socket 各发一份"。
+/// 存 socket2::Socket（同步 send_to，与 tokio 版同 fd 共享非阻塞模式）；
+/// recv 侧仍用对应的 tokio UdpSocket（recv_loop）。
+#[derive(Default)]
+pub struct SocketSet {
+    socks: std::sync::Mutex<Vec<socket2::Socket>>,
+}
+
+impl SocketSet {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add(&self, sock: socket2::Socket) {
+        self.socks.lock().unwrap().push(sock);
+    }
+
+    pub fn len(&self) -> usize {
+        self.socks.lock().unwrap().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// 每个活动 socket 各发一份（C# send 的逐 socket try/catch 尽力发）。
+    /// 返回失败 socket 数，由调用方记 warn（尽力发、失败记 warn）。
+    fn send_to_all(&self, to: SocketAddr, data: &[u8]) -> usize {
+        let socks = self.socks.lock().unwrap();
+        let to: socket2::SockAddr = to.into();
+        socks
+            .iter()
+            .filter(|s| s.send_to(data, &to).is_err())
+            .count()
+    }
+
+    /// C# sendBroadcast(port)
+    pub fn send_broadcast(&self, port: u16, data: &[u8]) -> usize {
+        let ip: Ipv4Addr = "255.255.255.255".parse().unwrap();
+        let to: SocketAddr = (ip, port).into();
+        self.send_to_all(to, data)
+    }
+
+    /// C# sendMulticast(dest, port)
+    pub fn send_multicast(&self, group: Ipv4Addr, port: u16, data: &[u8]) -> usize {
+        self.send_to_all(SocketAddr::from((group, port)), data)
+    }
+
+    /// C# sendUnicast(dest, port)
+    pub fn send_unicast(&self, ip: Ipv4Addr, port: u16, data: &[u8]) -> usize {
+        self.send_to_all(SocketAddr::from((ip, port)), data)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,7 +206,7 @@ mod tests {
         let mut pp = crate::ports::PortProvider::with_used(&[]);
         let (sock, port) = loop {
             let port = pp.free_port().expect("free port");
-            if let Ok(Some(sock)) = udp_bind_global(port, true, &l, 1) {
+            if let Ok(Some((sock, _sync))) = udp_bind_global(port, true, &l, 1) {
                 break (sock, port);
             }
         };
@@ -198,7 +259,7 @@ mod tests {
         let (sock, port) = loop {
             let port = pp.free_port().expect("free port");
             match udp_bind_multicast(group, port, &ifaces, &l, 1) {
-                Ok(sock) => break (sock, port),
+                Ok((sock, _sync)) => break (sock, port),
                 Err(_) => continue,
             }
         };

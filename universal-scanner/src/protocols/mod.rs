@@ -1,6 +1,7 @@
 //! 引擎注册表（T17 框架；各协议模块随任务逐个创建，T18 起）。
 
 pub mod ssdp;
+pub mod wsd;
 
 pub type EngineBuilder = fn() -> std::sync::Arc<dyn crate::engine::ScanEngine>;
 
@@ -9,7 +10,10 @@ pub type EngineBuilder = fn() -> std::sync::Arc<dyn crate::engine::ScanEngine>;
 /// 表从空开始，T18–T43 每完成一个引擎任务按 ID 升序追加条目。
 pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
     // 增量填充（按 ID 升序追加）
-    let builders: Vec<(u16, EngineBuilder)> = vec![(1, || std::sync::Arc::new(ssdp::Ssdp))];
+    let builders: Vec<(u16, EngineBuilder)> = vec![
+        (1, || std::sync::Arc::new(ssdp::Ssdp::default())),
+        (2, || std::sync::Arc::new(wsd::Wsd::default())),
+    ];
     builders.iter().map(|(id, b)| (*id, b())).collect()
 }
 

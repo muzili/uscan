@@ -2,17 +2,31 @@
 
 use crate::devices::Device;
 use crate::engine::{EngineContext, ScanEngine};
+use crate::net::SocketSet;
 use std::net::{Ipv4Addr, SocketAddr};
 use tokio::task::JoinHandle;
 
-pub struct Ssdp;
+const GROUP: Ipv4Addr = Ipv4Addr::new(239, 255, 255, 250);
+const PORT: u16 = 1900;
+
+pub struct Ssdp {
+    socks: SocketSet,
+}
+
+impl Default for Ssdp {
+    fn default() -> Self {
+        Self {
+            socks: SocketSet::new(),
+        }
+    }
+}
 
 impl ScanEngine for Ssdp {
     fn name(&self) -> &str {
         "SSDP"
     }
     fn used_ports(&self) -> &[u16] {
-        &[1900]
+        &[PORT]
     }
     fn color(&self) -> u32 {
         0x006400 // Color.DarkGreen
@@ -20,47 +34,49 @@ impl ScanEngine for Ssdp {
 
     fn listen(&self, ctx: std::sync::Arc<EngineContext>) -> crate::Result<Vec<JoinHandle<()>>> {
         let ifaces = crate::iface::active_interfaces();
-        let ips: Vec<Ipv4Addr> = ifaces.iter().flat_map(|i| i.ipv4_addrs()).collect();
-        let sock = crate::net::udp_bind_multicast(
-            "239.255.255.250".parse().unwrap(),
-            1900,
-            &ips,
-            &ctx.logger,
-            ctx.task_id,
-        )?;
-        let c = ctx.clone();
-        let e: std::sync::Arc<dyn ScanEngine> = std::sync::Arc::new(Ssdp);
-        let mut handles = vec![tokio::spawn(crate::net::recv_loop(
-            c,
+        let nic_ips: Vec<Ipv4Addr> = ifaces.iter().flat_map(|i| i.ipv4_addrs()).collect();
+        // recv_loop 只调用 parse()（纯函数），用新实例即可，无需自引用。
+        let e: std::sync::Arc<dyn ScanEngine> = std::sync::Arc::new(Self::default());
+        let mut handles = Vec::new();
+        // 组播（本引擎无 global）
+        let (msock, msync) =
+            crate::net::udp_bind_multicast(GROUP, PORT, &nic_ips, &ctx.logger, ctx.task_id)?;
+        self.socks.add(msync);
+        handles.push(tokio::spawn(crate::net::recv_loop(
+            ctx.clone(),
             std::sync::Arc::clone(&e),
-            sock,
-        ))];
-        // C# listenUdpInterfaces()：各网卡随机端口 socket 同样喂 recv_loop。
-        for ip in &ips {
-            let port = match ctx.ports.lock().unwrap().free_port() {
-                Some(p) => p,
-                None => {
-                    ctx.logger
-                        .warn(ctx.task_id, "no free port; skipping interface socket");
-                    continue;
-                }
+            msock,
+        )));
+        // C# listenUdpInterfaces：每网卡取 free_port（耗尽则跳过）
+        for ip in nic_ips {
+            let Some(p) = ctx.ports.lock().unwrap().free_port() else {
+                ctx.logger
+                    .warn(ctx.task_id, "no free port; skipping interface socket");
+                continue;
             };
-            let (_, isock) = crate::net::udp_bind_interface(*ip, port)?;
-            let c2 = ctx.clone();
-            let e2 = std::sync::Arc::clone(&e);
-            handles.push(tokio::spawn(crate::net::recv_loop(c2, e2, isock)));
+            let (_local, isock, isync) = crate::net::udp_bind_interface(ip, p)?;
+            self.socks.add(isync);
+            handles.push(tokio::spawn(crate::net::recv_loop(
+                ctx.clone(),
+                std::sync::Arc::clone(&e),
+                isock,
+            )));
         }
         Ok(handles)
     }
 
     fn scan(&self, ctx: &EngineContext) -> crate::Result<()> {
-        // 探测从 multicast+global+interfaces 全部 socket 发；本引擎无 global。
-        // 实现：把 listen 保存的 socket 句柄存进引擎内部（Mutex<Vec<UdpSocket>>），
-        // scan 时对每个 socket 以 send() 构造目标地址（multicast 239.255.255.250:1900 与 255.255.255.255:1900）发送。
-        // probe 文本（C# SSDP.sender 逐字对齐）：
-        //   "M-SEARCH * HTTP/1.1\r\nHost: {ip}:{port}\r\nST:upnp:rootdevice\r\nMan:\"ssdp:discover\"\r\nMX:2\r\n\r\n"
-        // 详见 T51（socket 持有模式统一化）；本任务先实现 parse + 常量，scan 在 T51 接线后补全。
-        let _ = ctx;
+        // C# SSDP.scan：sendMulticast(239.255.255.250, 1900) + sendBroadcast(1900)。
+        // C# send(endpoint) 先 sender(endpoint) 构造探测（Host 行来自目标端点），
+        // 再从所有活动 socket 各发一份（尽力发、失败记 warn）。
+        let mprobe = probe("239.255.255.250:1900");
+        let mut failed = self.socks.send_multicast(GROUP, PORT, &mprobe);
+        let bprobe = probe("255.255.255.255:1900");
+        failed += self.socks.send_broadcast(PORT, &bprobe);
+        if failed > 0 {
+            ctx.logger
+                .warn(ctx.task_id, &format!("{} SSDP sends failed", failed));
+        }
         Ok(())
     }
 
@@ -85,6 +101,14 @@ impl ScanEngine for Ssdp {
             serial,
         }]
     }
+}
+
+/// C# SSDP.sender(dest)：probe 文本逐字对齐，Host 行来自目标端点。
+fn probe(host: &str) -> Vec<u8> {
+    format!(
+        "M-SEARCH * HTTP/1.1\r\nHost: {host}\r\nST:upnp:rootdevice\r\nMan:\"ssdp:discover\"\r\nMX:2\r\n\r\n"
+    )
+    .into_bytes()
 }
 
 /// C# extractHttpVar：按 \r\n 或 \n 分行（去空行），跳过首行，key 不区分大小写。
@@ -161,7 +185,7 @@ mod tests {
     #[test]
     fn parse_response() {
         let from: std::net::SocketAddr = "240.0.1.0:1900".parse().unwrap();
-        let devs = Ssdp.parse(from, RESP.as_bytes());
+        let devs = Ssdp::default().parse(from, RESP.as_bytes());
         assert_eq!(devs.len(), 1);
         let d = &devs[0];
         assert_eq!(d.protocol, "SSDP");
@@ -175,14 +199,14 @@ mod tests {
     fn empty_usn_not_reported() {
         let from: std::net::SocketAddr = "240.0.1.0:1900".parse().unwrap();
         let body = "HTTP/1.1 200 OK\r\nSERVER: X/1.0\r\n\r\n";
-        assert!(Ssdp.parse(from, body.as_bytes()).is_empty());
+        assert!(Ssdp::default().parse(from, body.as_bytes()).is_empty());
     }
 
     #[test]
     fn no_server_is_anonymous() {
         let from: std::net::SocketAddr = "240.0.1.0:1900".parse().unwrap();
         let body = "HTTP/1.1 200 OK\r\nUSN: uuid:abc-123::upnp:rootdevice\r\n\r\n";
-        let devs = Ssdp.parse(from, body.as_bytes());
+        let devs = Ssdp::default().parse(from, body.as_bytes());
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].device_type, "anonymous");
         assert_eq!(devs[0].serial, "abc-123");
@@ -197,7 +221,7 @@ mod tests {
         .await
         .unwrap();
         let from: std::net::SocketAddr = "240.0.1.0:1024".parse().unwrap();
-        let devs = Ssdp.parse(from, &data);
+        let devs = Ssdp::default().parse(from, &data);
         // 期望值：对照 C# SSDP.reciever 规则手工核定后填入（注释出处：SSDP.cs reciever/extractHttpVar/extractUUID）
         assert!(!devs.is_empty(), "SSDP fixture should yield >=1 device");
         // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言

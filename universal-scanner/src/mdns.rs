@@ -93,7 +93,7 @@ impl MdnsBroker {
     ) -> crate::Result<Vec<JoinHandle<()>>> {
         let mut handles = Vec::new();
         // 组播 socket
-        let msock = crate::net::udp_bind_multicast(
+        let (msock, _msync) = crate::net::udp_bind_multicast(
             MDNS_GROUP,
             MDNS_PORT,
             iface_ips,
@@ -128,7 +128,7 @@ impl MdnsBroker {
                 }
             };
             match crate::net::udp_bind_interface(*ip, port) {
-                Ok((_, sock)) => {
+                Ok((_, sock, _sync)) => {
                     let s2 = Arc::new(sock);
                     socks.push(s2.clone());
                     let c2 = Arc::clone(self);
