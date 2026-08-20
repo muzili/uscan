@@ -10,6 +10,7 @@ pub mod eaton;
 pub mod eden;
 pub mod foscam;
 pub mod gige;
+pub mod googlecast;
 pub mod hanwha;
 pub mod hikvision;
 pub mod lantronix;
@@ -40,6 +41,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
         (5, || std::sync::Arc::new(hikvision::Hikvision::default())),
         (6, || std::sync::Arc::new(axis::Axis)),
         (7, || std::sync::Arc::new(bosch::Bosch::default())),
+        (8, || std::sync::Arc::new(googlecast::GoogleCast)),
         (9, || std::sync::Arc::new(hanwha::Hanwha::default())),
         (10, || std::sync::Arc::new(vivotek::Vivotek::default())),
         (11, || std::sync::Arc::new(sony::Sony::default())),
