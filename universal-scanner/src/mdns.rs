@@ -184,6 +184,50 @@ impl MdnsBroker {
     }
 }
 
+/// C# Axis/Arecont 的 deviceFound(protocol, version, addresses, model, serial)（两引擎各持一份私有方法、逻辑相同）：
+/// 非 autoconf 地址全部上报；autoconf IPv4 在无其他非 autoconf v4 或 force_zeroconf 时上报；
+/// autoconf IPv6 在无其他非 autoconf v6 或 force_link_local 时上报。
+/// 输出顺序 = 先全部非 autoconf（列表序），再 autoconf（列表序）。
+pub fn report_addresses(
+    protocol: &str,
+    version: u32,
+    addrs: &[IpAddr],
+    device_type: &str,
+    serial: &str,
+    cfg: &crate::Config,
+) -> Vec<crate::devices::Device> {
+    use crate::iface::is_autoconf; // 接受 IpAddr，覆盖 v4 169.254/16 与 v6 fe80::/10
+    let has_v4 = addrs
+        .iter()
+        .any(|a| matches!(a, IpAddr::V4(_)) && !is_autoconf(*a));
+    let has_v6 = addrs
+        .iter()
+        .any(|a| matches!(a, IpAddr::V6(_)) && !is_autoconf(*a));
+    let mk = |ip: IpAddr| crate::devices::Device {
+        protocol: protocol.into(),
+        version,
+        ip,
+        device_type: device_type.into(),
+        serial: serial.into(),
+    };
+    let mut out: Vec<crate::devices::Device> = Vec::new();
+    for a in addrs {
+        if !is_autoconf(*a) {
+            out.push(mk(*a));
+        }
+    }
+    for a in addrs {
+        match a {
+            IpAddr::V4(_) if is_autoconf(*a) && (!has_v4 || cfg.force_zeroconf) => out.push(mk(*a)),
+            IpAddr::V6(_) if is_autoconf(*a) && (!has_v6 || cfg.force_link_local) => {
+                out.push(mk(*a))
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// C# IdnMapping.GetAscii 的等价：ASCII 域小写原样；非 ASCII label 转 xn--<punycode>。
 /// UTS#46 完整规范化超出范围：真实注册域均为 ASCII；非 ASCII label 做小写 + punycode。
 pub fn idn_ascii(domain: &str) -> String {
