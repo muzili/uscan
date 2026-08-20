@@ -160,10 +160,8 @@ impl MdnsBroker {
     /// C# mDNS.scan：PTR 查询仅从 listen 保存的网卡 socket 发出（无 global、不经组播 socket）。
     /// `_iface_ips` 仅保持与 C# scan(queryString) 调用方签名兼容。
     pub fn scan(&self, domain: &str, _iface_ips: &[Ipv4Addr]) -> crate::Result<()> {
-        let query = build_query(domain, 0x000C)?;
-        let mut pkt = vec![0u8; 12];
-        pkt[4..6].copy_from_slice(&1u16.to_be_bytes());
-        pkt.extend_from_slice(&query);
+        // C# scan 原样发送 buildQuery 输出（完整查询包：12 字节头 + question），不得再套头。
+        let pkt = build_query(domain, 0x000C)?;
         let dest: socket2::SockAddr = std::net::SocketAddr::from((MDNS_GROUP, MDNS_PORT)).into();
         let sends = self.send_sockets.lock().unwrap();
         for s in sends.as_slice() {
@@ -463,7 +461,8 @@ pub fn parse_dns(data: &[u8]) -> crate::Result<DnsParse> {
         rd16(data, &mut pos)?;
         rd16(data, &mut pos)?;
     }
-    let total = (an + ns + ar) as usize;
+    // usize 求和防 u16 溢出（构造包 an/ns/ar 全大时 debug 构建不得 panic，release 不得回绕）。
+    let total = an as usize + ns as usize + ar as usize;
     let mut answers = Vec::new();
     let mut budget = 16u32;
     for _ in 0..total {
@@ -722,6 +721,17 @@ mod tests {
         full.extend_from_slice(&[10, 0, 0, 1]);
         assert!(parse_dns(&full).is_err());
     }
+
+    #[test]
+    fn header_counts_lying_no_overflow() {
+        // an+ns+ar 按 u16 相加会溢出（0xFFFE+0x0002）：必须不 panic（debug）不回绕（release）。
+        let mut p = vec![0u8; 13];
+        p[6..8].copy_from_slice(&0xFFFE_u16.to_be_bytes());
+        p[8..10].copy_from_slice(&0x0002_u16.to_be_bytes());
+        p[12] = 0x00;
+        // 越界/截断均可，唯一要求：不 panic
+        let _ = parse_dns(&p);
+    }
 }
 
 #[cfg(test)]
@@ -774,5 +784,18 @@ mod broker_tests {
         );
         b.on_packet(&a_answer_pkt("cam.local"));
         assert_eq!(hits.load(Ordering::SeqCst), 0);
+    }
+
+    /// 回归：scan 的线上包 = buildQuery 输出原样（单 12 字节头 + question）。
+    /// 曾因 scan 再套一层头发出 52 字节双头查询，真实 mDNS 应答端不会响应。
+    #[test]
+    fn scan_packet_single_header() {
+        let pkt = build_query("_axis-video._tcp.local", 0x000C).unwrap();
+        // 12 头 + 24 名字（0x0b+_axis-video, 0x04+_tcp, 0x05+local, 0）+ 4 type/class
+        assert_eq!(pkt.len(), 40);
+        assert_eq!(&pkt[0..12], &[0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(&pkt[12..36], &encode_name("_axis-video._tcp.local"));
+        assert_eq!(&pkt[36..38], &0x000C_u16.to_be_bytes());
+        assert_eq!(&pkt[38..40], &1u16.to_be_bytes());
     }
 }
