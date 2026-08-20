@@ -113,6 +113,17 @@ pub fn encode_name(domain: &str) -> Vec<u8> {
     out
 }
 
+/// C# mDNS.buildQuery：12 字节头（id=0, flags=0, qd=1）+ 名字（IDN→ASCII）+ type + class 1。
+pub fn build_query(domain: &str, qtype: u16) -> crate::Result<Vec<u8>> {
+    let name = encode_name(&idn_ascii(domain));
+    let mut out = vec![0u8; 12];
+    out[4..6].copy_from_slice(&1u16.to_be_bytes());
+    out.extend_from_slice(&name);
+    out.extend_from_slice(&qtype.to_be_bytes());
+    out.extend_from_slice(&1u16.to_be_bytes()); // IN
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     //! DNS 名字编码 + Punycode（T13）。
@@ -144,6 +155,22 @@ mod tests {
         // 非 ASCII label → xn--<punycode>（.NET IdnMapping.GetAscii 的 ASCII 域简化等价）
         assert_eq!(idn_ascii("müller.local"), "xn--mller-kva.local");
         assert_eq!(idn_ascii("axis.local"), "axis.local");
+    }
+
+    #[test]
+    fn build_query_bytes() {
+        let q = build_query("_axis-video._tcp.local", 0x000C).unwrap();
+        // 12 字节头：id=0 flags=0 qd=1 an=0 ns=0 ar=0
+        assert_eq!(&q[0..12], &[0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+        let name = encode_name("_axis-video._tcp.local");
+        assert_eq!(&q[12..12 + name.len()], &name);
+        // 结尾：type PTR + class IN
+        let (t, c) = (
+            q[q.len() - 4..q.len() - 2].try_into().unwrap(),
+            q[q.len() - 2..].try_into().unwrap(),
+        );
+        assert_eq!(u16::from_be_bytes(t), 0x000C);
+        assert_eq!(u16::from_be_bytes(c), 0x0001);
     }
 
     #[test]
