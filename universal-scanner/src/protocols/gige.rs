@@ -30,7 +30,7 @@ impl ScanEngine for GigEVision {
         "GigEVision"
     }
     fn used_ports(&self) -> &[u16] {
-        &[] // plan：I only，无固定端口预占（C# 注释 "not mandatory"）
+        &[PORT] // C# getUsedPort() = {3956}（注释 "not mandatory"，但 Scanner 仍预占）
     }
     fn color(&self) -> u32 {
         0xff0000 // Color.Red

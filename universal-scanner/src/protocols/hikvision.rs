@@ -10,7 +10,7 @@ const GROUP: Ipv4Addr = Ipv4Addr::new(239, 255, 255, 250);
 const PORT: u16 = 37020;
 
 /// C# getAssemblyUUID：固定 C# assembly GUID（spec §8.2 保留原样，不每次随机）。
-const PROBE: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Probe><Uuid>6a0eaae3-897b-4472-a692-ca0b08e09cd1</Uuid><Types>inquiry</Types></Probe>";
+const PROBE: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?><Probe><Uuid>6a0eaae3-897b-4472-a692-ca0b08e09cd1</Uuid><Types>inquiry</Types></Probe>";
 
 pub struct Hikvision {
     socks: SocketSet,
@@ -69,11 +69,9 @@ impl ScanEngine for Hikvision {
     }
 
     fn scan(&self, ctx: &EngineContext) -> crate::Result<()> {
-        // C# Hikvision.scan：sendMulticast(239.255.255.250, 37020)；
-        // plan 另要求广播（尽力发、失败记 warn）。
+        // C# Hikvision.scan：仅 sendMulticast(239.255.255.250, 37020)，无广播。
         let probe = PROBE.as_bytes().to_vec();
-        let mut failed = self.socks.send_multicast(GROUP, PORT, &probe);
-        failed += self.socks.send_broadcast(PORT, &probe);
+        let failed = self.socks.send_multicast(GROUP, PORT, &probe);
         if failed > 0 {
             ctx.logger
                 .warn(ctx.task_id, &format!("{} Hikvision sends failed", failed));
