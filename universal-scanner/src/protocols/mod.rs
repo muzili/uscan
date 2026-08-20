@@ -15,6 +15,7 @@ pub mod microchip;
 pub mod mssql;
 pub mod nicevision;
 pub mod panasonic;
+pub mod sony;
 pub mod ssdp;
 pub mod wsd;
 
@@ -33,6 +34,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
         (5, || std::sync::Arc::new(hikvision::Hikvision::default())),
         (7, || std::sync::Arc::new(bosch::Bosch::default())),
         (9, || std::sync::Arc::new(hanwha::Hanwha::default())),
+        (11, || std::sync::Arc::new(sony::Sony::default())),
         (
             14,
             || std::sync::Arc::new(nicevision::NiceVision::default()),
