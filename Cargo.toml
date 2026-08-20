@@ -9,7 +9,7 @@ rust-version = "1.75"
 license = "LGPL-3.0"
 
 [workspace.dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "fs"] }
 tokio-util = "0.7"
 socket2 = "0.5"
 if-addrs = "0.15"

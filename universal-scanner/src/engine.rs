@@ -17,7 +17,8 @@ pub trait ScanEngine: Send + Sync {
     fn used_ports(&self) -> &[u16]; // ARP/Vivotek/NiceVision/Advantech 等可为空
     fn color(&self) -> u32; // RGB（CLI table 着色）
     /// 建立本引擎 socket（global/interface/multicast 按需组合）并 spawn 接收任务。
-    fn listen(&self, ctx: &EngineContext) -> crate::Result<Vec<JoinHandle<()>>>;
+    /// ctx 按值传入（调用方持 Arc）：spawn 的 recv_loop 需要 `Arc<EngineContext>`，`ctx.clone()` 即共享。
+    fn listen(&self, ctx: Arc<EngineContext>) -> crate::Result<Vec<JoinHandle<()>>>;
     /// 发送一轮探测，**立即返回**（C# scan() 语义）；长任务内部 spawn 可取消。
     fn scan(&self, ctx: &EngineContext) -> crate::Result<()>;
     /// 纯解析函数：无 I/O 无副作用，fixture 测试直接调用。

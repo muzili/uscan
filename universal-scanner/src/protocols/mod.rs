@@ -1,12 +1,15 @@
 //! 引擎注册表（T17 框架；各协议模块随任务逐个创建，T18 起）。
 
+pub mod ssdp;
+
 pub type EngineBuilder = fn() -> std::sync::Arc<dyn crate::engine::ScanEngine>;
 
 /// 顺序与 ID 沿用 C# Program.cs（ID 决定 selftest 源地址 240.0.<id>.<minor>）。
 /// 21/22/27 为 C# 已禁用空位（Dlink/Hid/Microsens），不出现。
 /// 表从空开始，T18–T43 每完成一个引擎任务按 ID 升序追加条目。
 pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
-    let builders: Vec<(u16, EngineBuilder)> = Vec::new(); // 增量填充
+    // 增量填充（按 ID 升序追加）
+    let builders: Vec<(u16, EngineBuilder)> = vec![(1, || std::sync::Arc::new(ssdp::Ssdp))];
     builders.iter().map(|(id, b)| (*id, b())).collect()
 }
 
