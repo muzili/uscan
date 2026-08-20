@@ -97,7 +97,11 @@ impl ScanEngine for NiceVision {
 
     fn scan(&self, ctx: &EngineContext) -> crate::Result<()> {
         // C# NiceVision.scan：transactionId++ 后 sendBroadcast(requestPort)
-        let tx = self.transaction_id.fetch_add(1, Ordering::SeqCst) + 1;
+        // wrapping：C# UInt16 回绕（0xFFFF→0），debug 构建不得 panic
+        let tx = self
+            .transaction_id
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1);
         let probe = build_probe(tx);
         let failed = self.socks.send_broadcast(REQUEST_PORT, &probe);
         if failed > 0 {

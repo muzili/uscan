@@ -104,7 +104,7 @@ impl ScanEngine for Microchip {
         } else if lines.len() >= 2 {
             ("Microchip", lines[0].trim(), lines[1].trim())
         } else {
-            // C#：<2 行 → 不上报
+            // spec 决定：<2 行不上报（C# 实为无条件上报空 model/serial 的 device）
             return Vec::new();
         };
         vec![Device {
