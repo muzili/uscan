@@ -1,5 +1,6 @@
 //! 引擎注册表（T17 框架；各协议模块随任务逐个创建，T18 起）。
 
+pub mod advantech;
 pub mod bosch;
 pub mod cyberpower;
 pub mod dahua1;
@@ -49,6 +50,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
         (20, || std::sync::Arc::new(foscam::Foscam::default())),
         (23, || std::sync::Arc::new(lantronix::Lantronix::default())),
         (24, || std::sync::Arc::new(microchip::Microchip::default())),
+        (25, || std::sync::Arc::new(advantech::Advantech::default())),
         (26, || std::sync::Arc::new(eden::Eden::default())),
         (
             28,
