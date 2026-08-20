@@ -21,6 +21,7 @@ pub mod ssdp;
 pub mod ubiquiti;
 pub mod vision360;
 pub mod vivotek;
+pub mod vstarcam;
 pub mod wsd;
 
 pub type EngineBuilder = fn() -> std::sync::Arc<dyn crate::engine::ScanEngine>;
@@ -48,6 +49,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
         ),
         (15, || std::sync::Arc::new(panasonic::Panasonic::default())),
         (17, || std::sync::Arc::new(gige::GigEVision::default())),
+        (18, || std::sync::Arc::new(vstarcam::Vstarcam::default())),
         (19, || std::sync::Arc::new(eaton::Eaton::default())),
         (20, || std::sync::Arc::new(foscam::Foscam::default())),
         (23, || std::sync::Arc::new(lantronix::Lantronix::default())),
