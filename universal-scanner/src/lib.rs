@@ -12,3 +12,5 @@ pub mod ports;
 pub mod protocols;
 pub mod scanner;
 pub mod selftest;
+
+pub use errors::{Error, Result};
