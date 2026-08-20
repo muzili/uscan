@@ -86,9 +86,16 @@ impl ScanEngine for Vision360 {
             return Vec::new();
         }
         // C# quirk：首个 \n 位置 EOS > 0 时 text = text[..EOS-1]
-        //（连带丢掉换行前一个字符；EOS == 0 或无 \n 不截断）
+        //（连带丢掉换行前一个字符；EOS == 0 或无 \n 不截断）。
+        // C# Substring 按码点操作；Rust 按字节索引，须回退到字符边界（多字节字符前缀安全）。
         let trimmed: std::borrow::Cow<str> = match text.find('\n') {
-            Some(p) if p > 0 => std::borrow::Cow::Borrowed(&text[..p - 1]),
+            Some(p) if p > 0 => {
+                let mut s = p - 1;
+                while !text.is_char_boundary(s) {
+                    s -= 1;
+                }
+                std::borrow::Cow::Borrowed(&text[..s])
+            }
             _ => std::borrow::Cow::Borrowed(&text),
         };
         // C# readKeyValuePairs：TYPE → model、KEY → serial（缺省 "Unknown"）
@@ -207,6 +214,16 @@ mod tests {
         assert_eq!(devs[0].protocol, "360Vision");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].device_type, "CAM");
+        assert_eq!(devs[0].serial, "Unknown");
+    }
+
+    #[test]
+    fn newline_quirk_multibyte_before_newline() {
+        // 多字节字符紧邻 \n → C# 丢最后一个码点（€\n → ""）→ Unknown/Unknown，不得 panic
+        let from: SocketAddr = "240.0.13.0:1024".parse().unwrap();
+        let devs = Vision360::default().parse(from, b"\xE2\x82\xAC\n");
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].device_type, "Unknown");
         assert_eq!(devs[0].serial, "Unknown");
     }
 

@@ -122,7 +122,9 @@ impl ScanEngine for Sony {
         };
         // C# serial 回退链：serial → mac → "unkonwn"（C# 原文拼写，保留）
         let serial = serial.or(mac).unwrap_or("unkonwn").to_string();
-        // C# IPAddress.TryParse（v4/v6 均可）失败 → from（warn 由 T48 侧记）
+        // C# IPAddress.TryParse（v4/v6 均可）失败 → from（warn 由 T48 侧记）。
+        // 注：C# TryParse 更宽松（接受 "1.2.3"、前导零等简写），Rust 拒绝这些形式而
+        // 回退 from——两侧仍上报，仅非标 ipadr 字符串的 IP 值可能不同。
         let ip = ipv4
             .parse::<std::net::IpAddr>()
             .unwrap_or_else(|_| from.ip());

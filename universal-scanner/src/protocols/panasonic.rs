@@ -3,7 +3,7 @@
 use crate::devices::Device;
 use crate::engine::{EngineContext, ScanEngine};
 use crate::net::SocketSet;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
@@ -140,11 +140,17 @@ impl ScanEngine for Panasonic {
         let model = get(TLV_FULLNAME)
             .or_else(|| get(TLV_SHORTNAME))
             .map(|v| String::from_utf8_lossy(v).into_owned());
-        // C#：new IPAddress(byte[4]) 要求恰 4 字节（否则 C# 抛异常）；
-        // 4 字节**直接**按网络序构造，无翻转
-        let ip = get(TLV_IPV4)
-            .filter(|v| v.len() == 4)
-            .map(|v| Ipv4Addr::new(v[0], v[1], v[2], v[3]));
+        // C#：new IPAddress(byte[]) 接受 4B（IPv4）或 16B（IPv6），其他长度抛异常 → 无 ip。
+        // 字节**直接**按网络序构造，无翻转
+        let ip: Option<IpAddr> = get(TLV_IPV4).and_then(|v| match v.len() {
+            4 => Some(IpAddr::V4(Ipv4Addr::new(v[0], v[1], v[2], v[3]))),
+            16 => {
+                let mut a = [0u8; 16];
+                a.copy_from_slice(v);
+                Some(IpAddr::V6(Ipv6Addr::from(a)))
+            }
+            _ => None,
+        });
         // C#：model 与 ipv4 均存在才上报；version 1
         let (Some(model), Some(ip)) = (model, ip) else {
             return Vec::new();
@@ -152,7 +158,7 @@ impl ScanEngine for Panasonic {
         vec![Device {
             protocol: "Panasonic".into(),
             version: 1,
-            ip: ip.into(),
+            ip,
             device_type: model,
             serial,
         }]
@@ -235,6 +241,37 @@ mod tests {
         let devs = Panasonic::default().parse(from, &f);
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].device_type, "KX-A");
+    }
+
+    #[test]
+    fn panasonic_ipv6_sixteen_bytes() {
+        // C# new IPAddress(byte[16]) → IPv6：16B 值同样上报
+        let f = panasonic_frame(
+            [0; 6],
+            &[
+                (
+                    0x0020,
+                    &[0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+                ),
+                (0x00A7, b"KX-A"),
+            ],
+        );
+        let from: SocketAddr = "240.0.15.0:1024".parse().unwrap();
+        let devs = Panasonic::default().parse(from, &f);
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].ip, "fe80::1".parse::<IpAddr>().unwrap());
+        assert_eq!(devs[0].device_type, "KX-A");
+    }
+
+    #[test]
+    fn panasonic_bad_ip_length_not_reported() {
+        // ip 值既非 4B 也非 16B → C# new IPAddress 抛异常 → 不上报
+        let f = panasonic_frame(
+            [0; 6],
+            &[(0x0020, &[1, 2, 3, 4, 5, 6, 7, 8]), (0x00A7, b"KX-A")],
+        );
+        let from: SocketAddr = "240.0.15.0:1024".parse().unwrap();
+        assert!(Panasonic::default().parse(from, &f).is_empty());
     }
 
     #[tokio::test]
