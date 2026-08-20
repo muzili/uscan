@@ -1,5 +1,8 @@
 //! mDNS broker：设备发现广播与响应处理。
 
+use crate::errors::Error;
+use std::net::IpAddr;
+
 /// 占位类型：T12 引入以便 `engine.rs` 编译；T16 替换为真实实现。
 pub struct MdnsBroker;
 
@@ -124,6 +127,222 @@ pub fn build_query(domain: &str, qtype: u16) -> crate::Result<Vec<u8>> {
     Ok(out)
 }
 
+// ---------- DNS 应答解析（T15；C# readAnswers/readString/readAnswer_* 逐字节对齐） ----------
+
+/// 一条应答的数据（对应 C# mDNSAnswerData 联合体）。
+#[derive(Debug, Clone)]
+pub enum MdnsData {
+    A(IpAddr),
+    AAAA(IpAddr),
+    Ptr(String),
+    Txt(Vec<String>),
+    Srv {
+        priority: u16,
+        weight: u16,
+        port: u16,
+        target: String,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct MdnsAnswer {
+    pub rrtype: u16,
+    pub name: String,
+    pub data: MdnsData,
+}
+
+pub struct DnsParse {
+    pub answers: Vec<MdnsAnswer>,
+}
+
+fn rd16(d: &[u8], pos: &mut usize) -> crate::Result<u16> {
+    if *pos + 2 > d.len() {
+        return Err(Error::Dns("u16 overflow".into()));
+    }
+    let v = u16::from_be_bytes([d[*pos], d[*pos + 1]]);
+    *pos += 2;
+    Ok(v)
+}
+
+fn rd32(d: &[u8], pos: &mut usize) -> crate::Result<u32> {
+    if *pos + 4 > d.len() {
+        return Err(Error::Dns("u32 overflow".into()));
+    }
+    let v = u32::from_be_bytes([d[*pos], d[*pos + 1], d[*pos + 2], d[*pos + 3]]);
+    *pos += 4;
+    Ok(v)
+}
+
+/// DNS 名字（压缩指针，budget=16 重定向，C# maxCallBack 语义）。
+/// 返回 (name, name 字段之后的 position)。
+fn read_name(data: &[u8], pos: usize, budget: &mut u32) -> crate::Result<(String, usize)> {
+    let mut name = String::new();
+    let mut p = pos;
+    loop {
+        if p >= data.len() {
+            return Err(Error::Dns("name overflow".into()));
+        }
+        let len = data[p];
+        p += 1;
+        if len == 0 {
+            return Ok((name, p));
+        }
+        if !name.is_empty() {
+            name.push('.');
+        }
+        if len & 0xC0 == 0xC0 {
+            if p >= data.len() {
+                return Err(Error::Dns("ptr overflow".into()));
+            }
+            let target = (((len & 0x3F) as usize) << 8) | data[p] as usize;
+            p += 1;
+            if target >= data.len() {
+                return Err(Error::Dns("ptr out of bounds".into()));
+            }
+            *budget = budget.saturating_sub(1);
+            if *budget == 0 {
+                return Err(Error::Dns("max redirects (16) exceeded".into()));
+            }
+            let (rest, _) = read_name(data, target, budget)?;
+            name.push_str(&rest);
+            return Ok((name, p)); // p = 指针 2 字节之后
+        }
+        let end = p
+            .checked_add(len as usize)
+            .filter(|e| *e <= data.len())
+            .ok_or_else(|| Error::Dns("label overflow".into()))?;
+        name.push_str(&String::from_utf8_lossy(&data[p..end]));
+        p = end;
+    }
+}
+
+/// C# readAnswer_TXT 逐行对齐（含 `dataLen > 1` 外层条件 quirk）。
+fn parse_txt(data: &[u8], pos: &mut usize, rdlen: u16) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut remaining = rdlen as usize;
+    while remaining > 1 && *pos + 1 < data.len() {
+        let mut len = data[*pos] as usize;
+        *pos += 1;
+        remaining -= 1;
+        let mut s = String::new();
+        while len > 0 && remaining > 0 && *pos < data.len() {
+            s.push(data[*pos] as char);
+            *pos += 1;
+            remaining -= 1;
+            len -= 1;
+        }
+        out.push(s);
+    }
+    out
+}
+
+fn parse_srv(data: &[u8], pos: usize, rdlen: u16) -> MdnsData {
+    if rdlen < 6 {
+        return MdnsData::Srv {
+            priority: 0,
+            weight: 0,
+            port: 0,
+            target: String::new(),
+        };
+    }
+    let priority = u16::from_be_bytes([data[pos], data[pos + 1]]);
+    let weight = u16::from_be_bytes([data[pos + 2], data[pos + 3]]);
+    let port = u16::from_be_bytes([data[pos + 4], data[pos + 5]]);
+    let target = read_name(data, pos + 6, &mut 16)
+        .map(|(n, _)| n)
+        .unwrap_or_default();
+    MdnsData::Srv {
+        priority,
+        weight,
+        port,
+        target,
+    }
+}
+
+/// C# mDNS.reciever + readAnswers 语义：
+/// - questions 段跳过；answer+authority+additional 三节合并解析；
+/// - 未知 RRTYPE → 截断并返回已解析部分；rdata 越界 → Err（不分发）；
+/// - A/AAAA rdlen 不符 → 0.0.0.0/::（Rust 前进 rdlen，C# 不前进——spec §8.2 注记）。
+pub fn parse_dns(data: &[u8]) -> crate::Result<DnsParse> {
+    if data.len() <= 12 {
+        return Err(Error::Dns("packet too short".into()));
+    }
+    // 头：id(0..2) flags(2..4) qd(4) an(6) ns(8) ar(10)；RR 段自 12 起（C# mDNSHeader 布局）
+    let mut h = 4usize;
+    let qd = rd16(data, &mut h)?;
+    let an = rd16(data, &mut h)?;
+    let ns = rd16(data, &mut h)?;
+    let ar = rd16(data, &mut h)?;
+    let mut pos = 12usize;
+    for _ in 0..qd {
+        if pos >= data.len() {
+            return Err(Error::Dns("question overflow".into()));
+        }
+        let (_, np) = read_name(data, pos, &mut 16)?;
+        pos = np;
+        rd16(data, &mut pos)?;
+        rd16(data, &mut pos)?;
+    }
+    let total = (an + ns + ar) as usize;
+    let mut answers = Vec::new();
+    let mut budget = 16u32;
+    for _ in 0..total {
+        if pos >= data.len() {
+            break;
+        }
+        let (name, np) = read_name(data, pos, &mut budget)?;
+        pos = np;
+        let rrtype = rd16(data, &mut pos)?;
+        let _class = rd16(data, &mut pos)?;
+        let _ttl = rd32(data, &mut pos)?;
+        let rdlen = rd16(data, &mut pos)? as usize;
+        if pos + rdlen > data.len() {
+            return Err(Error::Dns("rdata out of bounds".into()));
+        }
+        let data_end = pos + rdlen;
+        let rdata = match rrtype {
+            4 => {
+                let ip = if rdlen != 4 {
+                    std::net::Ipv4Addr::UNSPECIFIED
+                } else {
+                    ipv4_from(data, pos)
+                };
+                MdnsData::A(ip.into())
+            }
+            28 => {
+                let ip = if rdlen != 16 {
+                    std::net::Ipv6Addr::UNSPECIFIED
+                } else {
+                    let b: [u8; 16] = data[pos..pos + 16].try_into().unwrap();
+                    std::net::Ipv6Addr::from(b)
+                };
+                MdnsData::AAAA(ip.into())
+            }
+            12 => {
+                let (n, _) = read_name(data, pos, &mut budget)?;
+                MdnsData::Ptr(n)
+            }
+            16 => MdnsData::Txt(parse_txt(data, &mut pos, rdlen as u16)),
+            33 => parse_srv(data, pos, rdlen as u16),
+            _ => {
+                // 未知类型：截断 + 部分分发（C# Array.Resize 语义）
+                return Ok(DnsParse { answers });
+            }
+        };
+        pos = data_end;
+        answers.push(MdnsAnswer {
+            rrtype,
+            name,
+            data: rdata,
+        });
+    }
+    Ok(DnsParse { answers })
+}
+
+fn ipv4_from(data: &[u8], pos: usize) -> std::net::Ipv4Addr {
+    std::net::Ipv4Addr::from([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]])
+}
+
 #[cfg(test)]
 mod tests {
     //! DNS 名字编码 + Punycode（T13）。
@@ -178,5 +397,149 @@ mod tests {
         // RFC 3492 §7.1/§7.3 官方样例（CJK 防回归）。
         assert_eq!(punycode("他们为什么不说中文"), "ihqwcrb4cv8a8dqg056pqjye");
         assert_eq!(punycode("3年B組金八先生"), "3B-ww4c5e180e575a65lsy2b");
+    }
+
+    // ---------- DNS 应答解析（T15） ----------
+
+    /// 构造：12 字节头 + questions 段 + 指定 RR 段。
+    fn pkt(qd: u16, rrs: &[u8], an: u16, ns: u16, ar: u16) -> Vec<u8> {
+        let mut p = vec![0u8; 12];
+        p[4..6].copy_from_slice(&qd.to_be_bytes());
+        p[6..8].copy_from_slice(&an.to_be_bytes());
+        p[8..10].copy_from_slice(&ns.to_be_bytes());
+        p[10..12].copy_from_slice(&ar.to_be_bytes());
+        if qd > 0 {
+            p.extend_from_slice(&[1, b'a', 0, 0, 0, 12, 0, 1]); // 问题占位（name 'a'）
+        }
+        p.extend_from_slice(rrs);
+        p
+    }
+
+    fn rr(name: &[u8], rrtype: u16, rdata: &[u8]) -> Vec<u8> {
+        let mut v = name.to_vec();
+        v.extend_from_slice(&rrtype.to_be_bytes());
+        v.extend_from_slice(&1u16.to_be_bytes()); // class IN (flush bit 视情况)
+        v.extend_from_slice(&0u32.to_be_bytes()); // ttl
+        v.extend_from_slice(&(rdata.len() as u16).to_be_bytes());
+        v.extend_from_slice(rdata);
+        v
+    }
+
+    #[test]
+    fn parses_a_in_all_three_sections() {
+        let a1 = rr(&encode_name("cam.local"), 4, &[192, 168, 1, 50]);
+        let a2 = rr(&encode_name("cam.local"), 4, &[192, 168, 1, 51]);
+        let a3 = rr(
+            &encode_name("cam.local"),
+            28,
+            &[0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        );
+        let p = pkt(0, &[a1, a2, a3].concat(), 1, 1, 1);
+        let r = parse_dns(&p).unwrap();
+        assert_eq!(r.answers.len(), 3);
+        let a50: IpAddr = "192.168.1.50".parse().unwrap();
+        let a51: IpAddr = "192.168.1.51".parse().unwrap();
+        let fe80: IpAddr = "fe80::1".parse().unwrap();
+        assert!(matches!(r.answers[0].data, MdnsData::A(ip) if ip == a50));
+        assert!(matches!(r.answers[1].data, MdnsData::A(ip) if ip == a51));
+        assert!(matches!(r.answers[2].data, MdnsData::AAAA(ip) if ip == fe80));
+    }
+
+    #[test]
+    fn compression_pointer_resolved() {
+        // 'cam.local' 全名在 offset 12（questions=0 时）
+        let name = encode_name("cam.local");
+        let full = rr(&name, 4, &[10, 0, 0, 1]);
+        let ptr_offset = 12u16; // rr 起始处
+                                // 追加一条用 0xC0 指针引用 cam.local 的 PTR；rdata 也是同一压缩指针
+        let ptr2: Vec<u8> = vec![0xC0u8, (ptr_offset & 0x3F) as u8]; // 指针 0xC00C → [0xC0, 0x0C]
+        let ptr_rr = rr(&ptr2, 12, &[0xC0, 0x0C]);
+        let p2 = pkt(0, &[full, ptr_rr].concat(), 2, 0, 0);
+        let r = parse_dns(&p2).unwrap();
+        assert_eq!(r.answers[1].name, "cam.local");
+        assert!(matches!(&r.answers[1].data, MdnsData::Ptr(n) if n == "cam.local"));
+    }
+
+    #[test]
+    fn unknown_rrtype_truncates_and_returns_partial() {
+        let good = rr(&encode_name("cam.local"), 4, &[10, 0, 0, 1]);
+        let unknown = rr(&encode_name("x.local"), 0x42, b"zz");
+        let more = rr(&encode_name("cam.local"), 4, &[10, 0, 0, 2]);
+        let p = pkt(0, &[good, unknown, more].concat(), 3, 0, 0);
+        let r = parse_dns(&p).unwrap();
+        assert_eq!(r.answers.len(), 1); // 未知类型截断，后续不解析（C# Array.Resize 语义）
+    }
+
+    #[test]
+    fn oob_rdata_no_dispatch() {
+        // rdlen 声称 4 但 rdata 只有 3 字节（rr 辅助函数 rdlen=实际长度，故手工构造）
+        let mut bad = encode_name("cam.local");
+        bad.extend_from_slice(&4u16.to_be_bytes()); // rrtype A
+        bad.extend_from_slice(&1u16.to_be_bytes()); // class IN
+        bad.extend_from_slice(&0u32.to_be_bytes()); // ttl
+        bad.extend_from_slice(&4u16.to_be_bytes()); // rdlen 声称 4
+        bad.extend_from_slice(&[10, 0, 0]); // 但只有 3 字节
+        let p = pkt(0, &bad, 1, 0, 0);
+        assert!(parse_dns(&p).is_err());
+    }
+
+    #[test]
+    fn txt_loop_uses_datalen_gt_1() {
+        // C# quirk：外层 while (dataLen > 1)——首长度字节为 1 时读完 1 字符后停止，["a"]
+        let t = rr(&encode_name("cam.local"), 16, &[1, b'a', b'b']);
+        let p = pkt(0, &t, 1, 0, 0);
+        let r = parse_dns(&p).unwrap();
+        match &r.answers[0].data {
+            MdnsData::Txt(v) => assert_eq!(v.as_slice(), &["a"]),
+            _ => panic!("expected TXT"),
+        }
+        // 正常 2 项：len-prefixed
+        let t2 = rr(
+            &encode_name("cam.local"),
+            16,
+            &[2, b'a', b'b', 3, b'c', b'd', b'e'],
+        );
+        let p2 = pkt(0, &t2, 1, 0, 0);
+        let r2 = parse_dns(&p2).unwrap();
+        match &r2.answers[0].data {
+            MdnsData::Txt(v) => assert_eq!(v.as_slice(), &["ab", "cde"]),
+            _ => panic!("expected TXT"),
+        }
+    }
+
+    #[test]
+    fn a_wrong_rdlen_warns_and_advances() {
+        // C# 不前进 position（quirk）；Rust 前进 rdlen（spec §8.2 注记）——后续 RR 仍可解析
+        let bad = rr(&encode_name("cam.local"), 4, &[1, 2, 3, 4, 5]); // rdlen 5
+        let good = rr(&encode_name("cam.local"), 4, &[10, 0, 0, 1]);
+        let p = pkt(0, &[bad, good].concat(), 2, 0, 0);
+        let r = parse_dns(&p).unwrap();
+        assert_eq!(r.answers.len(), 2);
+        let any: IpAddr = std::net::Ipv4Addr::UNSPECIFIED.into();
+        assert!(matches!(r.answers[0].data, MdnsData::A(ip) if ip == any));
+    }
+
+    #[test]
+    fn max_redirects_16th_fails() {
+        // 16 层指针链 → Err（C# maxCallBack=16：第 16 次重定向 throw）
+        // 构造：questions=0；offset 12（A RR 的 name 位置）放 16 个指针，
+        // 前 15 个依次指向下一个，第 16 个指回链首（环）
+        let mut full = vec![0u8; 12];
+        full[6..8].copy_from_slice(&1u16.to_be_bytes()); // an=1
+        let chain_start = 12usize;
+        let offs: Vec<usize> = (0..16).map(|i| chain_start + i * 2).collect();
+        for i in 0..15 {
+            let target = offs[i + 1] as u16;
+            full.extend_from_slice(&[0xC0 | (target >> 8) as u8, (target & 0xFF) as u8]);
+        }
+        let target = chain_start as u16;
+        full.extend_from_slice(&[0xC0 | (target >> 8) as u8, (target & 0xFF) as u8]);
+        // 链后接 A RR 的 type/class/ttl/rdlen/rdata
+        full.extend_from_slice(&4u16.to_be_bytes());
+        full.extend_from_slice(&1u16.to_be_bytes());
+        full.extend_from_slice(&0u32.to_be_bytes());
+        full.extend_from_slice(&4u16.to_be_bytes());
+        full.extend_from_slice(&[10, 0, 0, 1]);
+        assert!(parse_dns(&full).is_err());
     }
 }
