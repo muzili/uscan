@@ -1,10 +1,190 @@
 //! mDNS broker：设备发现广播与响应处理。
 
 use crate::errors::Error;
-use std::net::IpAddr;
+use crate::ports::PortProvider;
+use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr};
+use std::os::fd::{AsRawFd, BorrowedFd};
+use std::sync::{Arc, Mutex, RwLock};
+use tokio::net::UdpSocket;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
-/// 占位类型：T12 引入以便 `engine.rs` 编译；T16 替换为真实实现。
-pub struct MdnsBroker;
+pub type DomainHandler = Arc<dyn Fn(&str, &[MdnsAnswer]) + Send + Sync>;
+
+const MDNS_GROUP: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 251);
+const MDNS_PORT: u16 = 5353;
+
+/// mDNS 发现 broker：域名注册 + 组播/网卡 socket 接收 + PTR 查询 + 应答分发。
+pub struct MdnsBroker {
+    handlers: RwLock<HashMap<String, DomainHandler>>,
+    cancel: CancellationToken,
+    logger: Arc<crate::log::Logger>,
+    /// listen 保存的网卡 socket；scan 复用它们发送（C# interfacesListerner 语义）。
+    send_sockets: Mutex<Vec<Arc<UdpSocket>>>,
+}
+
+impl MdnsBroker {
+    pub fn new(logger: Arc<crate::log::Logger>, cancel: CancellationToken) -> Arc<Self> {
+        Arc::new(Self {
+            handlers: RwLock::new(HashMap::new()),
+            cancel,
+            logger,
+            send_sockets: Mutex::new(Vec::new()),
+        })
+    }
+
+    #[cfg(test)]
+    pub fn new_for_test() -> Arc<Self> {
+        Self::new(
+            Arc::new(crate::log::Logger::new(crate::log::Level::Debug)),
+            CancellationToken::new(),
+        )
+    }
+
+    pub fn register_domain(&self, filter: &str, handler: DomainHandler) {
+        self.handlers
+            .write()
+            .unwrap()
+            .insert(filter.to_string(), handler);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.handlers.read().unwrap().is_empty()
+    }
+
+    /// C# mDNS.getUsedPort：固定 5353（broker 端口由 broker 管理，T41 透传）。
+    pub fn get_used_ports(&self) -> &[u16] {
+        &[MDNS_PORT]
+    }
+
+    /// 接收路径（纯）：解析 → 首个匹配注册域名的 answer 触发**整包** answers 分发（C# triggerName 语义）。
+    pub fn on_packet(&self, data: &[u8]) {
+        let parsed = match parse_dns(data) {
+            Ok(p) => p,
+            Err(e) => {
+                self.logger.warn(0, &format!("mDNS parse failed: {e}"));
+                return;
+            }
+        };
+        if parsed.answers.is_empty() {
+            return;
+        }
+        let handlers = self.handlers.read().unwrap();
+        let trigger = parsed
+            .answers
+            .iter()
+            .find(|a| handlers.contains_key(&a.name));
+        if let Some(t) = trigger {
+            if let Some(h) = handlers.get(&t.name) {
+                h(t.name.as_str(), &parsed.answers);
+            }
+        }
+    }
+
+    /// C# mDNS.listen：listenMulticast(224.0.0.251, 5353) + listenUdpInterfaces()（**无 global listener**）。
+    /// 网卡 socket 绑 <ip>:PortProvider.free_port()（C# listenUdpInterfaces），存入 send_sockets 供 scan 复用。
+    /// 接收任务需持有 broker 的 Arc，故 receiver 为 &Arc<Self>（调用方 Arc<MdnsBroker> 自动适配）。
+    pub fn listen(
+        self: &Arc<Self>,
+        iface_ips: &[Ipv4Addr],
+        ports: &Arc<Mutex<PortProvider>>,
+        task_id: u32,
+    ) -> crate::Result<Vec<JoinHandle<()>>> {
+        let mut handles = Vec::new();
+        // 组播 socket
+        let msock = crate::net::udp_bind_multicast(
+            MDNS_GROUP,
+            MDNS_PORT,
+            iface_ips,
+            &self.logger,
+            task_id,
+        )?;
+        let msock = Arc::new(msock);
+        let ctx_self = Arc::clone(self);
+        let mctx = msock.clone();
+        handles.push(tokio::spawn(async move {
+            let mut buf = vec![0u8; 65535];
+            loop {
+                tokio::select! {
+                    _ = ctx_self.cancel.cancelled() => break,
+                    res = mctx.recv_from(&mut buf) => {
+                        if let Ok((n, _from)) = res {
+                            ctx_self.on_packet(&buf[..n]);
+                        }
+                    }
+                }
+            }
+        }));
+        // 各网卡 socket（C# listenUdpInterfaces；接收同样喂 on_packet）
+        let mut socks = self.send_sockets.lock().unwrap();
+        for ip in iface_ips {
+            let port = match ports.lock().unwrap().free_port() {
+                Some(p) => p,
+                None => {
+                    self.logger
+                        .warn(task_id, &format!("mDNS listen: no free port for {ip}"));
+                    continue;
+                }
+            };
+            match crate::net::udp_bind_interface(*ip, port) {
+                Ok((_, sock)) => {
+                    let s2 = Arc::new(sock);
+                    socks.push(s2.clone());
+                    let c2 = Arc::clone(self);
+                    handles.push(tokio::spawn(async move {
+                        let mut buf = vec![0u8; 65535];
+                        loop {
+                            tokio::select! {
+                                _ = c2.cancel.cancelled() => break,
+                                res = s2.recv_from(&mut buf) => {
+                                    if let Ok((n, _from)) = res {
+                                        c2.on_packet(&buf[..n]);
+                                    }
+                                }
+                            }
+                        }
+                    }));
+                }
+                Err(e) => {
+                    self.logger.warn(
+                        task_id,
+                        &format!("mDNS listen: bind {ip}:{port} failed: {e}"),
+                    );
+                }
+            }
+        }
+        Ok(handles)
+    }
+
+    /// C# mDNS.scan：PTR 查询仅从 listen 保存的网卡 socket 发出（无 global、不经组播 socket）。
+    /// `_iface_ips` 仅保持与 C# scan(queryString) 调用方签名兼容。
+    pub fn scan(&self, domain: &str, _iface_ips: &[Ipv4Addr]) -> crate::Result<()> {
+        let query = build_query(domain, 0x000C)?;
+        let mut pkt = vec![0u8; 12];
+        pkt[4..6].copy_from_slice(&1u16.to_be_bytes());
+        pkt.extend_from_slice(&query);
+        let dest: socket2::SockAddr = std::net::SocketAddr::from((MDNS_GROUP, MDNS_PORT)).into();
+        let sends = self.send_sockets.lock().unwrap();
+        for s in sends.as_slice() {
+            // tokio socket 为 non-blocking：经 fd 同步发送（socket2）
+            // SAFETY: s 由 Arc 保活，锁持有期间 fd 有效。
+            let dup = unsafe { BorrowedFd::borrow_raw(s.as_raw_fd()) }.try_clone_to_owned();
+            match dup {
+                Ok(dup) => {
+                    let sock = socket2::Socket::from(dup);
+                    if let Err(e) = sock.send_to(&pkt, &dest) {
+                        self.logger.warn(0, &format!("mDNS scan: send failed: {e}"));
+                    }
+                }
+                Err(e) => self
+                    .logger
+                    .warn(0, &format!("mDNS scan: fd dup failed: {e}")),
+            }
+        }
+        Ok(())
+    }
+}
 
 /// C# IdnMapping.GetAscii 的等价：ASCII 域小写原样；非 ASCII label 转 xn--<punycode>。
 /// UTS#46 完整规范化超出范围：真实注册域均为 ASCII；非 ASCII label 做小写 + punycode。
@@ -541,5 +721,58 @@ mod tests {
         full.extend_from_slice(&4u16.to_be_bytes());
         full.extend_from_slice(&[10, 0, 0, 1]);
         assert!(parse_dns(&full).is_err());
+    }
+}
+
+#[cfg(test)]
+mod broker_tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    fn a_answer_pkt(name: &str) -> Vec<u8> {
+        // 1 条 A 应答，name = 给定域名（an=1）
+        let mut p = vec![0u8; 12];
+        p[6..8].copy_from_slice(&1u16.to_be_bytes());
+        let mut r = encode_name(name);
+        r.extend_from_slice(&4u16.to_be_bytes());
+        r.extend_from_slice(&1u16.to_be_bytes());
+        r.extend_from_slice(&0u32.to_be_bytes());
+        r.extend_from_slice(&4u16.to_be_bytes());
+        r.extend_from_slice(&[10, 0, 0, 1]);
+        p.extend_from_slice(&r);
+        p
+    }
+
+    #[tokio::test]
+    async fn dispatches_to_first_matching_domain() {
+        let b = MdnsBroker::new_for_test();
+        let hits: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
+        let h = hits.clone();
+        b.register_domain(
+            "cam.local",
+            Arc::new(move |_dom, answers| {
+                h.fetch_add(answers.len(), Ordering::SeqCst);
+            }),
+        );
+        b.on_packet(&a_answer_pkt("cam.local"));
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn no_match_no_dispatch() {
+        let b = MdnsBroker::new_for_test();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let h = hits.clone();
+        b.register_domain(
+            "other.local",
+            Arc::new(move |_d, a| {
+                h.fetch_add(a.len(), Ordering::SeqCst);
+            }),
+        );
+        b.on_packet(&a_answer_pkt("cam.local"));
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
     }
 }
