@@ -18,6 +18,7 @@ pub mod panasonic;
 pub mod sony;
 pub mod ssdp;
 pub mod ubiquiti;
+pub mod vision360;
 pub mod wsd;
 
 pub type EngineBuilder = fn() -> std::sync::Arc<dyn crate::engine::ScanEngine>;
@@ -37,6 +38,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
         (9, || std::sync::Arc::new(hanwha::Hanwha::default())),
         (11, || std::sync::Arc::new(sony::Sony::default())),
         (12, || std::sync::Arc::new(ubiquiti::Ubiquiti::default())),
+        (13, || std::sync::Arc::new(vision360::Vision360::default())),
         (
             14,
             || std::sync::Arc::new(nicevision::NiceVision::default()),
