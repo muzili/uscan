@@ -2,6 +2,7 @@
 
 pub mod dahua1;
 pub mod dahua2;
+pub mod gige;
 pub mod hikvision;
 pub mod ssdp;
 pub mod wsd;
@@ -19,6 +20,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
         (3, || std::sync::Arc::new(dahua1::Dahua1::default())),
         (4, || std::sync::Arc::new(dahua2::Dahua2::default())),
         (5, || std::sync::Arc::new(hikvision::Hikvision::default())),
+        (17, || std::sync::Arc::new(gige::GigEVision::default())),
     ];
     builders.iter().map(|(id, b)| (*id, b())).collect()
 }
