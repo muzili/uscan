@@ -175,6 +175,15 @@ impl ScanEngine for Vivotek {
 mod tests {
     use super::*;
 
+    #[test]
+    fn probe_bytes_pinned() {
+        // C# sender：session=1 起步 + magic 0x4A5D8F1C BE → 01 4A 5D 8F 1C
+        assert_eq!(
+            Vivotek::default().build_probe(),
+            [0x01, 0x4A, 0x5D, 0x8F, 0x1C]
+        );
+    }
+
     /// 5B 头（session=1 + magic BE）+ 原始 TLV 字节。
     fn vi_frame(tlv: &[u8]) -> Vec<u8> {
         let mut d = vec![1u8];

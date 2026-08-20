@@ -111,6 +111,20 @@ impl ScanEngine for Advantech {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_bytes_pinned() {
+        // C# request 字面量逐字节钉死（60B，messageType 0x20 @0x35）
+        let p = build_probe();
+        assert_eq!(p.len(), 60);
+        assert_eq!(
+            &p[0..12],
+            &[0x4d, 0x41, 0x44, 0x41, 0x00, 0x00, 0x00, 0x83, 0x01, 0x00, 0x50, 0x00]
+        );
+        assert!(p[12..53].iter().all(|&b| b == 0));
+        assert_eq!(p[0x35], 0x20);
+        assert!(p[0x36..60].iter().all(|&b| b == 0));
+    }
     use std::net::IpAddr;
 
     /// 构造 0x38 头 + pad 字节填充的应答帧：mac @0x0D、messageType @0x35；
