@@ -480,7 +480,8 @@ pub fn parse_dns(data: &[u8]) -> crate::Result<DnsParse> {
         }
         let data_end = pos + rdlen;
         let rdata = match rrtype {
-            4 => {
+            // C# mDNSType.TYPE_A = 0x0001（标准 DNS A 记录；4 为 CNAME）。
+            1 => {
                 let ip = if rdlen != 4 {
                     std::net::Ipv4Addr::UNSPECIFIED
                 } else {
@@ -606,8 +607,8 @@ mod tests {
 
     #[test]
     fn parses_a_in_all_three_sections() {
-        let a1 = rr(&encode_name("cam.local"), 4, &[192, 168, 1, 50]);
-        let a2 = rr(&encode_name("cam.local"), 4, &[192, 168, 1, 51]);
+        let a1 = rr(&encode_name("cam.local"), 1, &[192, 168, 1, 50]);
+        let a2 = rr(&encode_name("cam.local"), 1, &[192, 168, 1, 51]);
         let a3 = rr(
             &encode_name("cam.local"),
             28,
@@ -628,7 +629,7 @@ mod tests {
     fn compression_pointer_resolved() {
         // 'cam.local' 全名在 offset 12（questions=0 时）
         let name = encode_name("cam.local");
-        let full = rr(&name, 4, &[10, 0, 0, 1]);
+        let full = rr(&name, 1, &[10, 0, 0, 1]);
         let ptr_offset = 12u16; // rr 起始处
                                 // 追加一条用 0xC0 指针引用 cam.local 的 PTR；rdata 也是同一压缩指针
         let ptr2: Vec<u8> = vec![0xC0u8, (ptr_offset & 0x3F) as u8]; // 指针 0xC00C → [0xC0, 0x0C]
@@ -641,9 +642,9 @@ mod tests {
 
     #[test]
     fn unknown_rrtype_truncates_and_returns_partial() {
-        let good = rr(&encode_name("cam.local"), 4, &[10, 0, 0, 1]);
+        let good = rr(&encode_name("cam.local"), 1, &[10, 0, 0, 1]);
         let unknown = rr(&encode_name("x.local"), 0x42, b"zz");
-        let more = rr(&encode_name("cam.local"), 4, &[10, 0, 0, 2]);
+        let more = rr(&encode_name("cam.local"), 1, &[10, 0, 0, 2]);
         let p = pkt(0, &[good, unknown, more].concat(), 3, 0, 0);
         let r = parse_dns(&p).unwrap();
         assert_eq!(r.answers.len(), 1); // 未知类型截断，后续不解析（C# Array.Resize 语义）
@@ -689,8 +690,8 @@ mod tests {
     #[test]
     fn a_wrong_rdlen_warns_and_advances() {
         // C# 不前进 position（quirk）；Rust 前进 rdlen（spec §8.2 注记）——后续 RR 仍可解析
-        let bad = rr(&encode_name("cam.local"), 4, &[1, 2, 3, 4, 5]); // rdlen 5
-        let good = rr(&encode_name("cam.local"), 4, &[10, 0, 0, 1]);
+        let bad = rr(&encode_name("cam.local"), 1, &[1, 2, 3, 4, 5]); // rdlen 5
+        let good = rr(&encode_name("cam.local"), 1, &[10, 0, 0, 1]);
         let p = pkt(0, &[bad, good].concat(), 2, 0, 0);
         let r = parse_dns(&p).unwrap();
         assert_eq!(r.answers.len(), 2);
@@ -747,7 +748,7 @@ mod broker_tests {
         let mut p = vec![0u8; 12];
         p[6..8].copy_from_slice(&1u16.to_be_bytes());
         let mut r = encode_name(name);
-        r.extend_from_slice(&4u16.to_be_bytes());
+        r.extend_from_slice(&1u16.to_be_bytes()); // rrtype A（C# TYPE_A = 0x0001）
         r.extend_from_slice(&1u16.to_be_bytes());
         r.extend_from_slice(&0u32.to_be_bytes());
         r.extend_from_slice(&4u16.to_be_bytes());
