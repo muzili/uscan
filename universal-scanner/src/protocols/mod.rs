@@ -1,5 +1,6 @@
 //! 引擎注册表（T17 框架；各协议模块随任务逐个创建，T18 起）。
 
+pub mod hikvision;
 pub mod ssdp;
 pub mod wsd;
 
@@ -13,6 +14,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
     let builders: Vec<(u16, EngineBuilder)> = vec![
         (1, || std::sync::Arc::new(ssdp::Ssdp::default())),
         (2, || std::sync::Arc::new(wsd::Wsd::default())),
+        (5, || std::sync::Arc::new(hikvision::Hikvision::default())),
     ];
     builders.iter().map(|(id, b)| (*id, b())).collect()
 }
