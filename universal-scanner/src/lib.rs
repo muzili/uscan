@@ -15,4 +15,5 @@ pub mod selftest;
 
 pub use config::Config;
 pub use devices::{Device, DeviceTable};
+pub use engine::{EngineContext, ScanEngine};
 pub use errors::{Error, Result};
