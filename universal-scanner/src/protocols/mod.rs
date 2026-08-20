@@ -12,6 +12,7 @@ pub mod hanwha;
 pub mod hikvision;
 pub mod lantronix;
 pub mod microchip;
+pub mod mssql;
 pub mod ssdp;
 pub mod wsd;
 
@@ -40,6 +41,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
             28,
             || std::sync::Arc::new(cyberpower::CyberPower::default()),
         ),
+        (29, || std::sync::Arc::new(mssql::Mssql::default())),
     ];
     builders.iter().map(|(id, b)| (*id, b())).collect()
 }
