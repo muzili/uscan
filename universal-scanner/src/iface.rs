@@ -1,4 +1,4 @@
-//! 活跃网卡枚举（if-addrs）与子网主机枚举（ipnet）。
+//! 活跃网卡枚举（if-addrs）与子网主机枚举（纯 u32 位运算，C# 对齐）。
 
 use if_addrs::{get_if_addrs, IfAddr};
 use std::net::{IpAddr, Ipv4Addr};

@@ -110,6 +110,7 @@ mod tests {
         assert!(l.enabled(Level::Warn));
         assert!(l.enabled(Level::Fatal));
         assert!(!l.enabled(Level::Info));
+        assert!(!l.enabled(Level::Debug));
         l.set_level(Level::Debug);
         assert!(l.enabled(Level::Debug));
     }
