@@ -13,4 +13,5 @@ pub mod protocols;
 pub mod scanner;
 pub mod selftest;
 
+pub use config::Config;
 pub use errors::{Error, Result};
