@@ -108,7 +108,7 @@ pub struct ScanArgs {
     pub dahua_net_scan: bool,
     #[arg(long)]
     pub no_dahua_net_scan: bool,
-    /// 启用 ARP 捕获（默认启用）
+    /// 启用 ARP 捕获（默认关闭）
     #[arg(long)]
     pub arp: bool,
     #[arg(long)]

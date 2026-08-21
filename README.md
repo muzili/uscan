@@ -94,7 +94,7 @@ debug_mode               = false  # 调试日志（含探测字节）
 port_sharing             = true   # SO_REUSEADDR 端口共享
 onvif_verbatim           = false  # ONVIF 原样上报
 dahua_net_scan           = false  # Dahua 子网扫描（netscan）
-arp_enabled              = true   # ARP/GARP L2 发现（Rust 新增）
+arp_enabled              = false  # ARP/GARP L2 发现（Rust 新增，默认关闭；CLI --arp 开启）
 ```
 
 查找顺序：`--config` > `$UNIVERSAL_SCANNER_CONFIG` > `$XDG_CONFIG_HOME/universal-scanner/config.toml` >

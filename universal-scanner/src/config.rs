@@ -28,7 +28,7 @@ impl Default for Config {
             port_sharing: true,
             onvif_verbatim: false,
             dahua_net_scan: false,
-            arp_enabled: true,
+            arp_enabled: false, // 默认关闭（L2 捕获有权限/噪声代价；--arp 或 TOML 开启）
         }
     }
 }
@@ -49,6 +49,6 @@ mod tests {
         assert!(c.port_sharing);
         assert!(!c.onvif_verbatim);
         assert!(!c.dahua_net_scan);
-        assert!(c.arp_enabled); // Rust 新增
+        assert!(!c.arp_enabled); // Rust 新增，默认关闭
     }
 }
