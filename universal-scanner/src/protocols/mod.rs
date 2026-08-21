@@ -1,6 +1,7 @@
 //! 引擎注册表（T17 框架；各协议模块随任务逐个创建，T18 起）。
 
 pub mod advantech;
+pub mod arecont;
 pub mod axis;
 pub mod bosch;
 pub mod cyberpower;
@@ -52,6 +53,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
             || std::sync::Arc::new(nicevision::NiceVision::default()),
         ),
         (15, || std::sync::Arc::new(panasonic::Panasonic::default())),
+        (16, || std::sync::Arc::new(arecont::Arecont::default())),
         (17, || std::sync::Arc::new(gige::GigEVision::default())),
         (18, || std::sync::Arc::new(vstarcam::Vstarcam::default())),
         (19, || std::sync::Arc::new(eaton::Eaton::default())),
@@ -107,28 +109,27 @@ mod tests {
         "ARP",
     ];
 
-    /// 增量期框架断言：条目按 ID 升序、无重复、且是最终表的**前缀子集**（按 ID 序）。
-    /// T43 完成后替换为下方注释里的完整断言。
+    /// T43 收尾（恢复 T17 放宽的完整断言）：名称列表 + ID 集合全量比对（按 ID 升序）。
+    /// 注：plan 的最终目标是 27 引擎（含 ARP id 30）；ARP 由 T44–T47 添加，
+    /// 故当前断言现有 26 引擎 [1..=20, 23..=26, 28, 29]（自最终表剔除 id 30 派生，
+    /// T44–T47 加 ARP 后去掉过滤即恢复 27 全量比对）。`list-protocols` 数据源就绪。
     #[test]
-    fn registry_framework() {
+    fn registry_complete() {
         let reg = registry();
         let ids: Vec<u16> = reg.iter().map(|(id, _)| *id).collect();
-        assert!(
-            ids.windows(2).all(|w| w[0] < w[1]),
-            "ids must be strictly increasing"
-        );
-        for (i, e) in reg.iter().enumerate() {
-            assert!(EXPECTED_IDS.contains(&e.0), "unexpected id {}", e.0);
-            assert_eq!(
-                e.1.name(),
-                EXPECTED_NAMES[EXPECTED_IDS.iter().position(|x| x == &e.0).unwrap()]
-            );
-            let _ = i;
-        }
-        // T43 收尾（完整断言）：
-        // assert_eq!(reg.len(), 27);
-        // assert_eq!(ids, EXPECTED_IDS.to_vec());
-        // let names: Vec<&str> = reg.iter().map(|(_, e)| e.name()).collect();
-        // assert_eq!(names, EXPECTED_NAMES.to_vec());
+        let current_ids: Vec<u16> = EXPECTED_IDS
+            .iter()
+            .copied()
+            .filter(|id| *id != 30) // ARP 未实现（T44–T47）
+            .collect();
+        assert_eq!(ids, current_ids);
+        let names: Vec<&str> = reg.iter().map(|(_, e)| e.name()).collect();
+        let current_names: Vec<&str> = EXPECTED_IDS
+            .iter()
+            .zip(EXPECTED_NAMES.iter())
+            .filter(|(id, _)| **id != 30)
+            .map(|(_, n)| *n)
+            .collect();
+        assert_eq!(names, current_names);
     }
 }
