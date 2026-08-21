@@ -1,4 +1,5 @@
 mod cli;
+mod commands;
 mod config;
 mod output;
 mod run;
@@ -11,12 +12,13 @@ async fn main() {
     let code: i32 = match cli.cmd {
         None => run::run_scan(&cli::ScanArgs::default()).await,
         Some(cli::Cmd::Scan(args)) => run::run_scan(&args).await,
-        Some(cli::Cmd::Selftest { .. })
-        | Some(cli::Cmd::Selftest2pcap { .. })
-        | Some(cli::Cmd::ListProtocols) => {
-            eprintln!("command not implemented yet (T55)");
-            2
-        }
+        Some(cli::Cmd::Selftest { protocol }) => commands::run_selftest(protocol.as_deref()),
+        Some(cli::Cmd::Selftest2pcap {
+            in_file,
+            out_file,
+            dest_port,
+        }) => commands::run_selftest2pcap(&in_file, &out_file, dest_port),
+        Some(cli::Cmd::ListProtocols) => commands::run_list_protocols(),
     };
     std::process::exit(code);
 }
