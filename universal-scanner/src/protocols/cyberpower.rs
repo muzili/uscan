@@ -123,8 +123,8 @@ fn parse_stream(data: &[u8]) -> Option<Device> {
         protocol: "CyberPower".into(),
         version: 1,
         ip: ip.into(),
-        // TODO: replace deviceName by devideModel and try to detect it
-        // TODO: known type values are 2=ATS / 3=BM / 4=Data Logger / 1=PDU / 0=UPS
+        // NOTE: replace deviceName by devideModel and try to detect it
+        // NOTE: known type values are 2=ATS / 3=BM / 4=Data Logger / 1=PDU / 0=UPS
         device_type: device_name,
         // C# PhysicalAddress.ToString()（.NET Framework）：大写 hex、无分隔符
         serial: format!(

@@ -105,9 +105,9 @@ pub fn replays() -> Vec<Replay> {
 }
 
 /// 按 Replay 选引擎。Dahua（同名两引擎）与 Lantronix（Lantronix/Vauban 共用引擎）靠 fixture 区分。
-fn engine_for(re: &Replay) -> Arc<dyn ScanEngine> {
+fn engine_for(re: &Replay) -> crate::Result<Arc<dyn ScanEngine>> {
     use crate::protocols;
-    match re.engine_name.as_str() {
+    let engine: Arc<dyn ScanEngine> = match re.engine_name.as_str() {
         "SSDP" => Arc::new(protocols::ssdp::Ssdp::default()),
         "WSDiscovery" => Arc::new(protocols::wsd::Wsd::default()),
         "Dahua" if re.fixture.starts_with("Dahua1") => {
@@ -136,13 +136,18 @@ fn engine_for(re: &Replay) -> Arc<dyn ScanEngine> {
         "Eden" => Arc::new(protocols::eden::Eden::default()),
         "CyberPower" => Arc::new(protocols::cyberpower::CyberPower::default()),
         "MSSQL" => Arc::new(protocols::mssql::Mssql::default()),
-        other => panic!("unknown selftest engine: {other}"),
-    }
+        other => {
+            return Err(crate::errors::Error::Config(format!(
+                "unknown selftest engine: {other}"
+            )))
+        }
+    };
+    Ok(engine)
 }
 
 /// mDNS 消费者重放：新 broker + 引擎 listen 注册 handler（接测试 reporter 通道）+ broker.on_packet。
 /// C# selfTest 语义：源地址 240.0.0.0，task_id 0。
-fn replay_mdns(re: &Replay, bytes: &[u8]) -> Vec<Device> {
+fn replay_mdns(re: &Replay, bytes: &[u8]) -> crate::Result<Vec<Device>> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mdns = MdnsBroker::new(
         Arc::new(crate::log::Logger::new(crate::log::Level::Fatal)),
@@ -159,7 +164,7 @@ fn replay_mdns(re: &Replay, bytes: &[u8]) -> Vec<Device> {
         task_id: 0,
         sweeps: Arc::new(Mutex::new(Vec::new())),
     });
-    let engine = engine_for(re);
+    let engine = engine_for(re)?;
     engine
         .listen(ctx.clone())
         .expect("mdns listen (register domain)");
@@ -168,7 +173,7 @@ fn replay_mdns(re: &Replay, bytes: &[u8]) -> Vec<Device> {
     while let Ok(d) = rx.try_recv() {
         devs.push(d);
     }
-    devs
+    Ok(devs)
 }
 
 /// 执行一次重放：UDP 引擎 → `engine.parse(source, bytes)`；
@@ -176,12 +181,12 @@ fn replay_mdns(re: &Replay, bytes: &[u8]) -> Vec<Device> {
 pub fn replay(re: &Replay) -> crate::Result<Vec<Device>> {
     let bytes = std::fs::read(fixture_dir().join(&re.fixture))?;
     let devs = match re.engine_name.as_str() {
-        "Axis" | "Google" | "Arecont" => replay_mdns(re, &bytes),
+        "Axis" | "Google" | "Arecont" => replay_mdns(re, &bytes)?,
         "ARP" => {
             let engine = crate::protocols::arp::Arp::default();
             engine.parse(re.source, &bytes)
         }
-        _ => engine_for(re).parse(re.source, &bytes),
+        _ => engine_for(re)?.parse(re.source, &bytes),
     };
     Ok(devs)
 }
