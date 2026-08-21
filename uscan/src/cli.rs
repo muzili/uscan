@@ -4,7 +4,11 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 /// Universal network device scanner (Rust port)
 #[derive(Parser, Debug)]
-#[command(name = "uscan", about = "Universal network device scanner (Rust port)")]
+#[command(
+    name = "uscan",
+    about = "Universal network device scanner (Rust port)",
+    version
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub cmd: Option<Cmd>,
