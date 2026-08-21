@@ -2,6 +2,7 @@
 
 pub mod advantech;
 pub mod arecont;
+pub mod arp;
 pub mod axis;
 pub mod bosch;
 pub mod cyberpower;
@@ -67,6 +68,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
             || std::sync::Arc::new(cyberpower::CyberPower::default()),
         ),
         (29, || std::sync::Arc::new(mssql::Mssql::default())),
+        (30, || std::sync::Arc::new(arp::Arp::default())),
     ];
     builders.iter().map(|(id, b)| (*id, b())).collect()
 }
@@ -110,26 +112,13 @@ mod tests {
     ];
 
     /// T43 收尾（恢复 T17 放宽的完整断言）：名称列表 + ID 集合全量比对（按 ID 升序）。
-    /// 注：plan 的最终目标是 27 引擎（含 ARP id 30）；ARP 由 T44–T47 添加，
-    /// 故当前断言现有 26 引擎 [1..=20, 23..=26, 28, 29]（自最终表剔除 id 30 派生，
-    /// T44–T47 加 ARP 后去掉过滤即恢复 27 全量比对）。`list-protocols` 数据源就绪。
+    /// 27 引擎全量比对（含 ARP id 30，T44–T47 添加）；名称列表 + ID 集合按 ID 升序。
     #[test]
     fn registry_complete() {
         let reg = registry();
         let ids: Vec<u16> = reg.iter().map(|(id, _)| *id).collect();
-        let current_ids: Vec<u16> = EXPECTED_IDS
-            .iter()
-            .copied()
-            .filter(|id| *id != 30) // ARP 未实现（T44–T47）
-            .collect();
-        assert_eq!(ids, current_ids);
+        assert_eq!(ids, EXPECTED_IDS.to_vec());
         let names: Vec<&str> = reg.iter().map(|(_, e)| e.name()).collect();
-        let current_names: Vec<&str> = EXPECTED_IDS
-            .iter()
-            .zip(EXPECTED_NAMES.iter())
-            .filter(|(id, _)| **id != 30)
-            .map(|(_, n)| *n)
-            .collect();
-        assert_eq!(names, current_names);
+        assert_eq!(names, EXPECTED_NAMES.to_vec());
     }
 }
