@@ -93,7 +93,8 @@ pub fn udp_bind_multicast(
         if let Err(e) = sock.join_multicast_v4(&group, iface) {
             logger.warn(task_id, &format!("join {group} on {iface} failed: {e}"));
         } else {
-            logger.info(
+            // 默认 Debug 级（每网卡一行，噪声大）；join 失败仍是 Warn。
+            logger.debug(
                 task_id,
                 &format!("joining group {group} on interface {iface}"),
             );
