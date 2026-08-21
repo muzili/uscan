@@ -208,8 +208,13 @@ mod tests {
         let from: SocketAddr = "240.0.20.0:1024".parse().unwrap();
         let devs = Foscam::default().parse(from, &data);
         // 期望值：对照 C# Foscam.reciever 规则手工核定后填入（注释出处：Foscam.cs reciever/FoscamAnwser）
-        assert!(!devs.is_empty(), "Foscam fixture should yield >=1 device");
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Foscam.reciever：deviceType→"Type 8"；ipBytes 低位在前（identity 序）→240.0.20.0；version 1
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "Foscam");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.20.0");
+        assert_eq!(devs[0].device_type, "Type 8");
+        assert_eq!(devs[0].serial, "0123456789");
     }
 
     #[tokio::test]
@@ -223,10 +228,12 @@ mod tests {
         let from: SocketAddr = "240.0.20.0:1024".parse().unwrap();
         let devs = Foscam::default().parse(from, &data);
         // 期望值：对照 C# Foscam.reciever 规则手工核定后填入（注释出处：Foscam.cs reciever cipheredXor 分支）
-        assert!(
-            !devs.is_empty(),
-            "Foscam_cipher fixture should yield >=1 device"
-        );
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Foscam.recipher：cipherKey XOR 解密后 ipBytes→240.0.20.1
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "Foscam");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.20.1");
+        assert_eq!(devs[0].device_type, "Type 8");
+        assert_eq!(devs[0].serial, "0123456789");
     }
 }

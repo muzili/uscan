@@ -185,10 +185,12 @@ mod tests {
         let devs = NiceVision::default().parse(from, &data);
         // 期望值：对照 C# NiceVision.reciever 规则手工核定后填入（注释出处：NiceVision.cs reciever/NiceVisionAnswer）；
         // 注意 ip 按 `new IPAddress(UInt32)` 字节翻转 quirk 核定
-        assert!(
-            !devs.is_empty(),
-            "NiceVision fixture should yield >=1 device"
-        );
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# NiceVision.reciever：new IPAddress(answer.ipv4)（uint 网络序）→0.14.0.240 反转 quirk
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "NiceVision");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "0.14.0.240");
+        assert_eq!(devs[0].device_type, "Virtual");
+        assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 }

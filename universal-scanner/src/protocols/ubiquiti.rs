@@ -291,7 +291,12 @@ mod tests {
         let from: SocketAddr = "240.0.12.0:1024".parse().unwrap();
         let devs = Ubiquiti::default().parse(from, &data);
         // 期望值：对照 C# Ubiquiti.reciever/readNextValue 规则手工核定后填入（注释出处：Ubiquiti.cs reciever）
-        assert!(!devs.is_empty(), "Ubiquiti fixture should yield >=1 device");
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Ubiquiti.reciever：{0:X2}:... 大写 hex MAC
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "Ubiquiti");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.12.0");
+        assert_eq!(devs[0].device_type, "VIRTUAL");
+        assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 }

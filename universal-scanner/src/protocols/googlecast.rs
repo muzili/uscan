@@ -280,10 +280,12 @@ mod tests {
         }
         // 期望值：对照 C# GoogleCast.googlecastDeviceFound 规则手工核定后填入
         //（TXT md=Google Virtual / fn=Google Virtual、A 240.0.8.0、无 AAAA）
-        assert!(
-            !devs.is_empty(),
-            "GoogleCast fixture should yield >=1 device"
-        );
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言（源地址 240.0.0.0，task_id 0）
+        // C# GoogleCast.googleCastDeviceFound：friendlyName="Google Virtual"，serial=同 friendlyName
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "Google");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.8.0");
+        assert_eq!(devs[0].device_type, "Google Virtual");
+        assert_eq!(devs[0].serial, "Google Virtual");
     }
 }

@@ -180,11 +180,13 @@ mod tests {
         let from: SocketAddr = "240.0.24.0:1024".parse().unwrap();
         let devs = Microchip::default().parse(from, &data);
         // 期望值：对照 C# Microchip.reciever 规则手工核定后填入（注释出处：Microchip.cs reciever）
-        assert!(
-            !devs.is_empty(),
-            "Microchip fixture should yield >=1 device"
-        );
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Microchip.reciever：manufacturer→protocol，product→device_type，mac 文本（短横）
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "Microchip");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.24.0");
+        assert_eq!(devs[0].device_type, "Virtual");
+        assert_eq!(devs[0].serial, "00-11-22-33-44-55");
     }
 
     #[tokio::test]
@@ -198,7 +200,12 @@ mod tests {
         let from: SocketAddr = "240.0.24.0:1024".parse().unwrap();
         let devs = Microchip::default().parse(from, &data);
         // 期望值：对照 C# Microchip.reciever 规则手工核定后填入（注释出处：Microchip.cs reciever GCE 分支）
-        assert!(!devs.is_empty(), "GCE fixture should yield >=1 device");
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Microchip.reciever GCE 分支：manufacturer="GCE"
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "GCE");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.24.0");
+        assert_eq!(devs[0].device_type, "Virtual");
+        assert_eq!(devs[0].serial, "00-11-22-33-44-55");
     }
 }

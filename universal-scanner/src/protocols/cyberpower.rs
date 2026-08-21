@@ -258,10 +258,12 @@ mod tests {
         let from: SocketAddr = "240.0.28.0:1024".parse().unwrap();
         let devs = CyberPower::default().parse(from, &data);
         // 期望值：对照 C# CyberPower.reciever 规则手工核定后填入（注释出处：CyberPower.cs reciever/readString/xor）
-        assert!(
-            !devs.is_empty(),
-            "CyberPower fixture should yield >=1 device"
-        );
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# CyberPower.reciever：mac.ToString()（PhysicalAddress）→大写 12 hex 无分隔 "001122334455"
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "CyberPower");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.28.0");
+        assert_eq!(devs[0].device_type, "Virtual");
+        assert_eq!(devs[0].serial, "001122334455");
     }
 }

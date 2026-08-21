@@ -366,7 +366,17 @@ mod tests {
         let from: SocketAddr = "240.0.4.0:1024".parse().unwrap();
         let devs = Dahua2::default().parse(from, &data);
         // 期望值：对照 C# Dahua2.reciever 规则手工核定后填入（注释出处：Dahua2.cs reciever/extractJsonString/extractJsonSection）
-        assert!(!devs.is_empty(), "Dahua2 fixture should yield >=1 device");
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Dahua2.reciever（JSON）：DeviceType="Virtual (JSON)"，version 2，IP 取自 JSON 字符串（非 LE）；v4+v6
+        assert_eq!(devs.len(), 2);
+        assert_eq!(devs[0].protocol, "Dahua");
+        assert_eq!(devs[0].version, 2);
+        assert_eq!(devs[0].ip.to_string(), "240.0.4.0");
+        assert_eq!(devs[0].device_type, "Virtual (JSON)");
+        assert_eq!(devs[0].serial, "123456789");
+        assert_eq!(devs[1].protocol, "Dahua");
+        assert_eq!(devs[1].version, 2);
+        assert_eq!(devs[1].ip.to_string(), "fe80::");
+        assert_eq!(devs[1].device_type, "Virtual (JSON)");
+        assert_eq!(devs[1].serial, "123456789");
     }
 }

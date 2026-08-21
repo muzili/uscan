@@ -267,7 +267,17 @@ mod tests {
         let from: SocketAddr = "240.0.3.0:1024".parse().unwrap();
         let devs = Dahua1::default().parse(from, &data);
         // 期望值：对照 C# Dahua1.reciever 规则手工核定后填入（注释出处：Dahua1.cs reciever/parseSection3）
-        assert!(!devs.is_empty(), "Dahua1 fixture should yield >=1 device");
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Dahua1.reciever：littleEndian32(ip) → 0.3.0.240（LE quirk）；v4(v1)+v6(v2) 两条
+        assert_eq!(devs.len(), 2);
+        assert_eq!(devs[0].protocol, "Dahua");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "0.3.0.240");
+        assert_eq!(devs[0].device_type, "Virtual");
+        assert_eq!(devs[0].serial, "123456789");
+        assert_eq!(devs[1].protocol, "Dahua");
+        assert_eq!(devs[1].version, 2);
+        assert_eq!(devs[1].ip.to_string(), "fe80::1");
+        assert_eq!(devs[1].device_type, "Virtual");
+        assert_eq!(devs[1].serial, "123456789");
     }
 }

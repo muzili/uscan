@@ -223,7 +223,12 @@ mod tests {
         let devs = Vstarcam::default().parse(from, &data);
         // 期望值：对照 C# Vstarcam.reciever 规则手工核定后填入
         //（注释出处：Vstarcam.cs reciever；ip 字段 NUL 填充 → 两侧均回退 from）
-        assert!(!devs.is_empty(), "VStarcam fixture should yield >=1 device");
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Vstarcam.reciever：GetString(name)→"Virtual Camera"，GetString(serial)→"123456789"；ip NUL 填充 → 回退 from
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "VStarcam");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.18.0");
+        assert_eq!(devs[0].device_type, "Virtual Camera");
+        assert_eq!(devs[0].serial, "123456789");
     }
 }

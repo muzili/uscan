@@ -208,10 +208,12 @@ mod tests {
         let from: SocketAddr = "240.0.17.0:1024".parse().unwrap();
         let devs = GigEVision::default().parse(from, &data);
         // 期望值：对照 C# GigEVision.reciever 规则手工核定后填入（注释出处：GigEVision.cs reciever/GigEVisionAckn）
-        assert!(
-            !devs.is_empty(),
-            "GigEVision fixture should yield >=1 device"
-        );
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# GigEVision.reciever：new IPAddress(plIPCurrentAddr)（long 网络序）→0.17.0.240 反转；version 0（vendor 名）
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "GigEVision");
+        assert_eq!(devs[0].version, 0);
+        assert_eq!(devs[0].ip.to_string(), "0.17.0.240");
+        assert_eq!(devs[0].device_type, "Virtual device");
+        assert_eq!(devs[0].serial, "123456789");
     }
 }

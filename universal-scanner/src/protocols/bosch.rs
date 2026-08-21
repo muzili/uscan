@@ -241,11 +241,13 @@ mod tests {
         let from: SocketAddr = "240.0.7.0:1024".parse().unwrap();
         let devs = Bosch::default().parse(from, &data);
         // 期望值：对照 C# Bosch.reciever 规则手工核定后填入（注释出处：Bosch.cs reciever 二进制分支/BoschBinaryAnswer）
-        assert!(
-            !devs.is_empty(),
-            "Bosch.bin fixture should yield >=1 device"
-        );
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Bosch.reciever 二进制分支：littleEndian32(ipv4)→0.7.0.240（LE quirk），deviceType=name="Bosch"，version 1
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "Bosch");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "0.7.0.240");
+        assert_eq!(devs[0].device_type, "Bosch");
+        assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 
     #[tokio::test]
@@ -259,10 +261,17 @@ mod tests {
         let from: SocketAddr = "240.0.7.0:1024".parse().unwrap();
         let devs = Bosch::default().parse(from, &data);
         // 期望值：对照 C# Bosch.reciever 规则手工核定后填入（注释出处：Bosch.cs reciever XML 分支）
-        assert!(
-            !devs.is_empty(),
-            "Bosch.xml fixture should yield >=1 device"
-        );
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Bosch.reciever XML 分支：version 2；IPv4(240.0.7.1)+IPv6(fe80::1) 两条
+        assert_eq!(devs.len(), 2);
+        assert_eq!(devs[0].protocol, "Bosch");
+        assert_eq!(devs[0].version, 2);
+        assert_eq!(devs[0].ip.to_string(), "240.0.7.1");
+        assert_eq!(devs[0].device_type, "Virtual (XML)");
+        assert_eq!(devs[0].serial, "12345678:12345678");
+        assert_eq!(devs[1].protocol, "Bosch");
+        assert_eq!(devs[1].version, 2);
+        assert_eq!(devs[1].ip.to_string(), "fe80::1");
+        assert_eq!(devs[1].device_type, "Virtual (XML)");
+        assert_eq!(devs[1].serial, "12345678:12345678");
     }
 }

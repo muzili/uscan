@@ -227,10 +227,12 @@ mod tests {
         .unwrap();
         let from: SocketAddr = "240.0.2.0:1024".parse().unwrap();
         let devs = Wsd::default().parse(from, &data);
-        assert!(
-            !devs.is_empty(),
-            "WSDiscovery fixture should yield >=1 device"
-        );
-        // TODO(T50): 按 spec §3.x 行对照 xxd 核定完整 (protocol, version, ip, type, serial) 断言
+        // C# Wsdiscovery.reciever：name="WSDiscovery"，version 0
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "WSDiscovery");
+        assert_eq!(devs[0].version, 0);
+        assert_eq!(devs[0].ip.to_string(), "240.0.2.0");
+        assert_eq!(devs[0].device_type, "Virtual Device");
+        assert_eq!(devs[0].serial, "11223344-5566-7788-9900-000000000002");
     }
 }

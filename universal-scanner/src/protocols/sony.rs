@@ -230,7 +230,12 @@ mod tests {
         let from: SocketAddr = "240.0.11.0:1024".parse().unwrap();
         let devs = Sony::default().parse(from, &data);
         // 期望值：对照 C# Sony.reciever/readPacket 规则手工核定后填入（注释出处：Sony.cs reciever/readPacket）
-        assert!(!devs.is_empty(), "Sony fixture should yield >=1 device");
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Sony.reciever/readPacket：model/serial 提取
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "Sony");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.11.0");
+        assert_eq!(devs[0].device_type, "Virtual");
+        assert_eq!(devs[0].serial, "123456789");
     }
 }

@@ -189,10 +189,17 @@ mod tests {
         let from: SocketAddr = "240.0.5.0:1024".parse().unwrap();
         let devs = Hikvision::default().parse(from, &data);
         // 期望值：对照 C# Hikvision.reciever 规则手工核定后填入（注释出处：Hikvision.cs reciever/extractXMLString）
-        assert!(
-            !devs.is_empty(),
-            "Hikvision fixture should yield >=1 device"
-        );
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Hikvision.reciever：version 1；IPv4 + IPv6（fixture 中为 "::"，TryParse 成功）两条
+        assert_eq!(devs.len(), 2);
+        assert_eq!(devs[0].protocol, "Hikvision");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.5.0");
+        assert_eq!(devs[0].device_type, "Virtual");
+        assert_eq!(devs[0].serial, "Virtual-123456789");
+        assert_eq!(devs[1].protocol, "Hikvision");
+        assert_eq!(devs[1].version, 1);
+        assert_eq!(devs[1].ip.to_string(), "::");
+        assert_eq!(devs[1].device_type, "Virtual");
+        assert_eq!(devs[1].serial, "Virtual-123456789");
     }
 }

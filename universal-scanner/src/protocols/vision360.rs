@@ -282,10 +282,12 @@ mod tests {
         let devs = Vision360::default().parse(from, &data);
         // 期望值：对照 C# _360Vision.reciever/readKeyValuePairs 规则手工核定后填入
         //（注意 ip 恒为 from、文本按首个 \n 截断 quirk 核定）
-        assert!(
-            !devs.is_empty(),
-            "360Vision fixture should yield >=1 device"
-        );
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# 360Vision.reciever：model "IPDOME"，MAC 大写 hex
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "360Vision");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.13.0");
+        assert_eq!(devs[0].device_type, "IPDOME");
+        assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 }

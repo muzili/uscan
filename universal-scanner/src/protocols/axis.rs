@@ -285,7 +285,12 @@ mod tests {
         // 期望值：对照 C# Axis.axisDeviceFound 规则手工核定后填入
         //（PTR "Virtual - 001122334455.*"、TXT macaddress=001122334455、
         // A 240.0.6.0 + A 169.254.65.120（autoconf，默认过滤））
-        assert!(!devs.is_empty(), "Axis fixture should yield >=1 device");
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言（源地址 240.0.0.0，task_id 0）
+        // C# Axis.axisDeviceFound：PTR "Virtual - 001122334455.*" → type "Virtual"，serial "001122334455"
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "Axis");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.6.0");
+        assert_eq!(devs[0].device_type, "Virtual");
+        assert_eq!(devs[0].serial, "001122334455");
     }
 }

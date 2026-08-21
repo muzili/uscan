@@ -286,7 +286,12 @@ mod tests {
         let devs = Vivotek::default().parse(from, &data);
         // 期望值：对照 C# Vivotek.reciever/readNextValue 规则手工核定后填入
         //（注释出处：Vivotek.cs reciever/readNextValue）
-        assert!(!devs.is_empty(), "Vivotek fixture should yield >=1 device");
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Vivotek.reciever/readNextValue：{0:X2}:... 大写 hex MAC
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "Vivotek");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.10.0");
+        assert_eq!(devs[0].device_type, "Virtual");
+        assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 }

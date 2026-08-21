@@ -223,7 +223,12 @@ mod tests {
         let from: std::net::SocketAddr = "240.0.1.0:1024".parse().unwrap();
         let devs = Ssdp::default().parse(from, &data);
         // 期望值：对照 C# SSDP.reciever 规则手工核定后填入（注释出处：SSDP.cs reciever/extractHttpVar/extractUUID）
-        assert!(!devs.is_empty(), "SSDP fixture should yield >=1 device");
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# SSDP.reciever：SERVER 头 "Virtual/1.0"→device_type，USN uuid→serial，version 0
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "SSDP");
+        assert_eq!(devs[0].version, 0);
+        assert_eq!(devs[0].ip.to_string(), "240.0.1.0");
+        assert_eq!(devs[0].device_type, "Virtual/1.0");
+        assert_eq!(devs[0].serial, "unique-id-12345678");
     }
 }

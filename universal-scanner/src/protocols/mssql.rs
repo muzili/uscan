@@ -196,7 +196,12 @@ mod tests {
         let from: SocketAddr = "240.0.29.0:1024".parse().unwrap();
         let devs = Mssql::default().parse(from, &data);
         // 期望值：对照 C# MSSQL.reciever 规则手工核定后填入（注释出处：MSSQL.cs reciever）
-        assert!(!devs.is_empty(), "MSSQL fixture should yield >=1 device");
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# MSSQL.reciever：InstanceName="MSSQL"→device_type，ServerName="Server123456"→serial
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "MSSQL");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.29.0");
+        assert_eq!(devs[0].device_type, "MSSQL");
+        assert_eq!(devs[0].serial, "Server123456");
     }
 }

@@ -285,10 +285,12 @@ mod tests {
         let from: SocketAddr = "240.0.15.0:1024".parse().unwrap();
         let devs = Panasonic::default().parse(from, &data);
         // 期望值：对照 C# Panasonic.reciever 规则手工核定后填入（注释出处：Panasonic.cs reciever/parsePacket）
-        assert!(
-            !devs.is_empty(),
-            "Panasonic fixture should yield >=1 device"
-        );
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# Panasonic.reciever：Encoding.UTF8.GetString(values[fullname]) 保留 NUL → "Virtual"+9×NUL
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "Panasonic");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.15.0");
+        assert_eq!(devs[0].device_type, "Virtual\0\0\0\0\0\0\0\0\0");
+        assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 }

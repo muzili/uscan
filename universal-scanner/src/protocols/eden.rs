@@ -184,7 +184,12 @@ mod tests {
         let from: SocketAddr = "240.0.26.0:1024".parse().unwrap();
         let devs = Eden::default().parse(from, &data);
         // 期望值：对照 C# EdenOptima.reciever 规则手工核定后填入（注释出处：EdenOptima.cs reciever/extractXMLString）
-        assert!(!devs.is_empty(), "Eden fixture should yield >=1 device");
-        // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言
+        // C# EdenOptima.reciever：device_type 硬编码 "Optima box"
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].protocol, "Eden");
+        assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].ip.to_string(), "240.0.26.0");
+        assert_eq!(devs[0].device_type, "Optima box");
+        assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 }
