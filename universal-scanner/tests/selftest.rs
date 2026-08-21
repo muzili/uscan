@@ -36,14 +36,14 @@ fn expected_tuples() -> BTreeMap<Key, Vec<Tuple>> {
             "11223344-5566-7788-9900-000000000002".into(),
         )],
     );
-    // Dahua1.cs：littleEndian32(ip)→0.3.0.240（LE quirk）；v4(v1)+v6(v2)
+    // Dahua1：wire 顺序 240.0.3.0（C# 反转 quirk 已修正，spec §8.2）；v4(v1)+v6(v2)
     m.insert(
         ("Dahua".into(), "Dahua1.selftest".into()),
         vec![
             (
                 "Dahua".into(),
                 1,
-                "0.3.0.240".into(),
+                "240.0.3.0".into(),
                 "Virtual".into(),
                 "123456789".into(),
             ),

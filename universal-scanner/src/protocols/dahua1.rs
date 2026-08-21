@@ -97,12 +97,14 @@ impl ScanEngine for Dahua1 {
         if SECTION1_LEN + section2_len + section3_len != data.len() {
             return Vec::new();
         }
-        // C# littleEndian32 在 LE 平台上是恒等：wire 字节 LE 读出后直接按
-        // new IPAddress(u32) 的**网络序**语义取 ip（C# quirk，照抄）。
+        // C# quirk（**有意偏离并修正**，spec §8.2）：C# littleEndian32 在 LE 主机上恒等，
+        // 再经 new IPAddress(u32) 网络序解释 → 实际把 wire 字节**反转**（真实设备
+        // 192.168.1.110 被报成 110.1.168.192）。此处按 wire 顺序解释：
         let ip_raw = u32::from_le_bytes([data[0x38], data[0x39], data[0x3A], data[0x3B]]);
         let ip = if ip_raw != 0 {
-            let b = ip_raw.to_be_bytes();
-            std::net::IpAddr::V4(std::net::Ipv4Addr::new(b[0], b[1], b[2], b[3]))
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+                data[0x38], data[0x39], data[0x3A], data[0x3B],
+            ))
         } else {
             from.ip()
         };
@@ -215,8 +217,8 @@ mod tests {
 
     #[test]
     fn correct_frame_reports_v4() {
-        // ip_u32=0xC0A80164：wire=LE(64 01 A8 C0) → C# new IPAddress 网络序 → 192.168.1.100
-        let mut frame = section1(25, 18, "AB", 0xC0A80164);
+        // wire 按网络序写 192.168.1.100（真实设备行为；section1 以 LE 写 u32 → 传 0x6401A8C0）
+        let mut frame = section1(25, 18, "AB", 0x6401A8C0);
         frame.extend_from_slice(b"00:11:22:33:44:55Override"); // sec2：17B MAC + 8B type 覆盖
         frame.extend_from_slice(b"SerialNo:SN12345\r\n"); // sec3
         let from: SocketAddr = "240.0.3.0:1024".parse().unwrap();
@@ -245,7 +247,7 @@ mod tests {
     #[test]
     fn ipv6_reports_second_entry_v2() {
         let sec3 = b"IPv6Addr:fe80::1/64;gateway:fe80::\r\nSerialNo:SN1\r\n";
-        let mut frame = section1(17, sec3.len() as u16, "CamZ", 0xC0A80164);
+        let mut frame = section1(17, sec3.len() as u16, "CamZ", 0x6401A8C0);
         frame.extend_from_slice(b"00:11:22:33:44:55");
         frame.extend_from_slice(sec3);
         let from: SocketAddr = "240.0.3.0:1024".parse().unwrap();
@@ -267,11 +269,11 @@ mod tests {
         let from: SocketAddr = "240.0.3.0:1024".parse().unwrap();
         let devs = Dahua1::default().parse(from, &data);
         // 期望值：对照 C# Dahua1.reciever 规则手工核定后填入（注释出处：Dahua1.cs reciever/parseSection3）
-        // C# Dahua1.reciever：littleEndian32(ip) → 0.3.0.240（LE quirk）；v4(v1)+v6(v2) 两条
+        // Dahua1 修正后：wire 顺序 240.0.3.0（C# 会反转为 0.3.0.240，spec §8.2 有意偏离）；v4(v1)+v6(v2) 两条
         assert_eq!(devs.len(), 2);
         assert_eq!(devs[0].protocol, "Dahua");
         assert_eq!(devs[0].version, 1);
-        assert_eq!(devs[0].ip.to_string(), "0.3.0.240");
+        assert_eq!(devs[0].ip.to_string(), "240.0.3.0");
         assert_eq!(devs[0].device_type, "Virtual");
         assert_eq!(devs[0].serial, "123456789");
         assert_eq!(devs[1].protocol, "Dahua");
