@@ -18,7 +18,7 @@ const OUI_PATHS: [&str; 3] = [
     "/usr/share/ieee-data/oui.txt",
 ];
 
-/// 内置精简库（`HEX\tVendor` 行，gzip；生成方式见 README「OUI 数据库」节）。
+/// 内置精简库（`HEX\tVendor` 行，gzip；生成方式见 `oui_data/README.md`）。
 static EMBEDDED: &[u8] = include_bytes!("oui_data/compact.txt.gz");
 
 type OuiMap = HashMap<[u8; 3], String>;

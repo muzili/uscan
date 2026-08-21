@@ -1,177 +1,270 @@
 # UniversalScanner (Rust)
 
-多品牌网络摄像机 / 门禁 / UPS 设备发现工具的 **C# UniversalScanner 行为级复刻**（原项目为
-C#/.NET 4.5 WinForms，约 8300 行）。本仓库为库 crate（`universal-scanner`）+ CLI（`uscan`），
-**不做 UI**。
+Rust port of the C# [UniversalScanner](https://github.com/julienblitte/UniversalScanner) — a
+multi-brand network device discovery tool for IP cameras, access-control systems, and UPS units.
+The original is a ~8,300-line C#/.NET 4.5 WinForms app; here it is re-implemented as a library
+crate (`universal-scanner`) plus a CLI (`uscan`). No UI.
 
-- **28 个协议引擎** = 26 个 C# 引擎复刻 + 新增 **ARP/GARP** L2 与 **TVT**（MHED 组播协议，逆向自实机抓包）发现引擎；
-  其中 SSDP / WSDiscovery / Hikvision 为组播类，Axis / Google / Arecont 为 mDNS broker 消费者，
-  其余为广播类。
-- **mDNS broker**：单一 DNS-wire 解析 + 域名注册表，供 3 个 mDNS 消费者共享（端口 5353）。
-- 许可：**LGPL-3.0**（与原项目一致）。
-- 对应设计文档：`../UniversalScanner/docs/superpowers/specs/2026-08-20-universal-scanner-rust-design.md`
+[中文文档](README_zh.md)
 
-> 本 README 主体为中文，关键章节附英文小节；英文摘要见文末 [English summary](#english-summary)。
+## What it does
 
-## 1. 构建 / Build
+`uscan` sends UDP discovery probes over multicast, broadcast, and per-interface sockets, then
+prints each device that answers: protocol, version, IP, MAC, model, and serial. There is one
+engine per vendor protocol, 28 in total:
+
+- 26 are 1:1 ports of the C# engines — probe bytes, ports, parsing, and fallback behavior included.
+- 2 are new in this port: **ARP/GARP** (L2 capture via libpcap) and **TVT** (MHED multicast
+  protocol, reverse-engineered from a live device capture).
+- An **mDNS broker** (port 5353) parses DNS-wire responses once and serves the three mDNS
+  engines (Axis, Google Cast, Arecont) instead of each running its own listener.
+
+Behavioral parity with the C# original is the acceptance bar, and it is verified offline: 32
+captured request/response fixtures (`.selftest`) are replayed through the same parsing path that
+live scanning uses. `uscan selftest` runs all of them; all green means the parsing layer still
+matches the C# behavior.
+
+## Requirements
+
+- Rust ≥ 1.75 (edition 2021)
+- Linux: `libpcap-dev` and `pkg-config` (the `pcap` crate links the system libpcap); macOS
+  ships libpcap
+
+## Build
 
 ```bash
 cargo build --release
 ```
 
-**系统依赖：** Linux 需 **libpcap**（`libpcap-dev` + `pkg-config`）；macOS 自带 libpcap。
-ARP 设备的 serial 会追加 MAC 厂家标注（`84:7b:57:xx:xx:xx (Intel Corporate)`）。
-OUI 数据源优先级：系统 `ieee-data` 包 → `uscan update-oui` 下载的缓存
-（`~/.cache/uscan/oui.txt`，IEEE 官方源）→ **内置压缩数据库**（`oui_data/compact.txt.gz`，
-约 400KB、39,982 条，开箱即用）。重新生成内置库：
+The binary lands at `target/release/uscan`.
+
+## Usage
+
+Omitting the subcommand runs a scan:
 
 ```bash
-python3 - <<'PY'
-import gzip, re, urllib.request
-req = urllib.request.Request("https://standards-oui.ieee.org/oui/oui.txt",
-                             headers={"User-Agent": "Mozilla/5.0"})
-out = [f"{m.group(1)}\t{m.group(2)}"
-       for m in map(lambda l: re.match(r'^([0-9A-F]{6})\s+\(base 16\)\s*(.+?)\s*$', l.decode()),
-                    urllib.request.urlopen(req))]
-open("universal-scanner/src/oui_data/compact.txt.gz", "wb").write(gzip.compress("\n".join(out).encode(), 9))
-PY
-```
-Rust ≥ 1.75（edition 2021，MSRV 1.75）。
-
-```bash
-# Debian/Ubuntu
-sudo apt-get install libpcap-dev pkg-config
-```
-
-## 2. 用法 / CLI usage
-
-省略子命令 = 默认 `scan`：
-
-```bash
-# 默认扫描（流式子网探测）
 uscan
+```
 
-# 指定协议 + 输出格式
+Sample output (CSV; `table` is the default format):
+
+```
+$ uscan scan --timeout 5 --format csv
+protocol,version,ip,mac,type,serial
+"SSDP","0","192.168.1.111","","Private Upnp SDK","device_3_0-0067120380000304"
+"Hikvision","1","192.168.1.101","","DS-2CD3T25-I3","DS-2CD3T25-I320200730AACHE40182"
+"Dahua","1","192.168.1.111","BC:32:5F:71:9B:03","IP Camera","0067120380000304"
+```
+
+More examples:
+
+```bash
 uscan scan --protocols ssdp,hikvision --format csv
 uscan scan --protocols dahua --format json --show-version
-uscan scan --format tsv --rescan 30 --timeout 120   # 每 30s 重扫，120s 后退出
-
-# 配置：TOML 文件（--config）覆盖内置默认；CLI flag 覆盖文件
-uscan scan --config ./universal-scanner.toml
-
-# 离线回归：重放 .selftest fixture（默认全部；可加协议名过滤）
-uscan selftest
-uscan selftest google
-
-# 把 fixture 包装成单个 UDP loopback pcap 包（用于抓包回放）
-uscan selftest2pcap in.selftest out.pcap
-uscan selftest2pcap in.selftest out.pcap --dest-port 1900
-
-# 列出全部协议引擎 + mDNS broker 行
-uscan list-protocols
-
-# TVT 设备设置 IP（L2 set-IP 组播报文，MHED type 3；协议逆向自实机，参考 tvt-iptool-linux）
-uscan tvt-set --mac 00:18:ae:9b:e2:80 --ip 192.168.0.90 --mask 255.255.255.0 --gateway 192.168.0.1
-uscan tvt-set --mac 00:18:ae:9b:e2:80 --ip 192.168.0.90 --dhcp        # 切回 DHCP
-uscan tvt-set --mac 00:18:ae:9b:e2:80 --ip 192.168.0.90 --dry-run     # 只打印报文，不发送
-# 改后验证：uscan scan --protocols TVT（同一设备 serial 应以新 IP 再现）
+uscan scan --format tsv --rescan 30 --timeout 120   # rescan every 30s, exit after 120s
 ```
 
-**输出格式**（`--format`）：`table`（默认）/ `csv` / `json`（JSON Lines）/ `tsv`。
-批量输出加 `--batch`（结束时按发现顺序一次性输出）。
-CSV/TSV 表头恒为 `protocol,version,ip,mac,type,serial`（version 列对齐 C# 隐藏列导出；
-mac 列为 Rust 版新增，位于 ip 之后——协议应答不含 MAC 地址的引擎（如 Hikvision/SSDP）该列为空；
-每字段按 C# `exportAsCSV` 规则双引号包裹、内部 `"` 翻倍）。
+### Commands
 
-**配置文件（TOML，10 个开关，CLI > 文件 > 内置默认）：**
+| Command | What it does |
+|---|---|
+| `uscan [scan]` | Discovery run (default) |
+| `uscan selftest [engine]` | Offline fixture replay, all or one engine (case-insensitive) |
+| `uscan selftest2pcap IN OUT [--dest-port N]` | Wrap a fixture as a single UDP loopback pcap packet; refuses to overwrite an existing OUT |
+| `uscan list-protocols` | Engine table: ID, name, port, listen mode |
+| `uscan update-oui` | Download the IEEE OUI database to `~/.cache/uscan/oui.txt` |
+| `uscan tvt-set --mac M --ip I [flags]` | Set a static IP on a TVT camera (L2 set-IP multicast, MHED type 3) |
+
+`tvt-set` transmits the packet 3 times at 100 ms intervals. Useful flags: `--dhcp` (put the
+camera back on DHCP; ip/mask/gateway are ignored), `--dry-run` (print the packet hex with the
+password field zeroed, send nothing), `--password` (admin password, ≤ 21 bytes, base64 in the
+packet), `--interface` (pick the outgoing interface IP). The protocol was reverse-engineered
+from a live capture (cf. `tvt-iptool-linux`); after a set-IP, verify with
+`uscan scan --protocols TVT` — the same serial should reappear under the new IP.
+
+### Scan flags
+
+| Flag | Meaning |
+|---|---|
+| `--protocols a,b,c` | Engine filter, case-insensitive (default: all) |
+| `--format table\|csv\|json\|tsv` | Output format; `json` is JSON Lines |
+| `--batch` | Buffer and print everything in discovery order at exit |
+| `--rescan SECS` / `--timeout SECS` | Rescan interval / graceful-exit deadline |
+| `--show-version` | Show the Version column |
+| `--pcap-out PATH` | Dump probes and responses to a pcap file |
+| `--config PATH` | TOML config file (see below) |
+| `--arp` / `--no-arp` | Toggle the ARP/GARP engine (off by default) |
+| `--no-color` | Disable colored output |
+
+The 10 config switches below also exist as CLI flags (`--enable-ipv6`, `--no-debug`,
+`--dahua-net-scan`, …); CLI always wins.
+
+### Output
+
+Rows stream out as devices are found; `--batch` buffers them and prints in discovery order when
+the scan ends (timeout or Ctrl-C).
+
+CSV/TSV always carry the header `protocol,version,ip,mac,type,serial`. Quoting follows the C#
+`exportAsCSV` rules (every field quoted, embedded quotes doubled), so files line up with the
+original tool's exports. The `mac` column is new in the Rust port and sits right after `ip`;
+engines whose replies carry no MAC (SSDP, WSDiscovery, Hikvision, …) leave it empty.
+
+### Configuration
+
+Resolution order: CLI flags > TOML file > built-in defaults.
+
+File lookup: `--config PATH` > `$UNIVERSAL_SCANNER_CONFIG` >
+`$XDG_CONFIG_HOME/universal-scanner/config.toml` > `~/.config/universal-scanner/config.toml`.
+A missing file is skipped silently; unknown keys are an error (the key name is printed).
 
 ```toml
-enable_ipv4              = true   # 启用 IPv4 发现
-enable_ipv6              = false  # 启用 IPv6 发现
-force_link_local         = true   # 保留 link-local (fe80::) 设备
-force_zeroconf           = false  # 保留 zeroconf (169.254/16) 设备
-force_generic_protocols  = false  # 按 protocol+IP 去重（否则仅按 IP）
-debug_mode               = false  # 调试日志（含探测字节）
-port_sharing             = true   # SO_REUSEADDR 端口共享
-onvif_verbatim           = false  # ONVIF 原样上报
-dahua_net_scan           = false  # Dahua 子网扫描（netscan）
-arp_enabled              = false  # ARP/GARP L2 发现（Rust 新增，默认关闭；CLI --arp 开启）
+enable_ipv4              = true   # IPv4 discovery
+enable_ipv6              = false  # IPv6 discovery
+force_link_local         = true   # keep link-local (fe80::) devices
+force_zeroconf           = false  # keep zeroconf (169.254/16) devices
+force_generic_protocols  = false  # dedupe by protocol+IP (off: IP only)
+debug_mode               = false  # verbose logging, includes probe bytes
+port_sharing             = true   # SO_REUSEADDR on shared ports
+onvif_verbatim           = false  # WSDiscovery: raw ONVIF payload
+dahua_net_scan           = false  # Dahua subnet scan (Dahua2 netscan)
+arp_enabled              = false  # ARP/GARP L2 engine (Rust-only)
 ```
 
-查找顺序：`--config` > `$UNIVERSAL_SCANNER_CONFIG` > `$XDG_CONFIG_HOME/universal-scanner/config.toml` >
-`~/.config/universal-scanner/config.toml`；不存在则静默跳过。未知键报错（含键名）。
+### Permissions and graceful degradation
 
-## 3. 权限 / Permissions
+- The ARP engine captures raw frames: Linux needs `CAP_NET_RAW` (or root), macOS needs read
+  access to `/dev/bpf`. Without it, the engine logs `warn: ARP discovery disabled (no capture
+  permission)` and every other engine keeps running — which is also why `arp_enabled`
+  defaults to off.
+- If a port is already in use and `port_sharing` is off, that socket is skipped with a warning
+  (same as C#). One busy port never fails the whole scan.
 
-- **ARP 捕获** 需要 Linux `CAP_NET_RAW`（或 root）/ macOS `/dev/bpf` 读权限。
-- 权限不足时 **ARP 引擎优雅降级**：日志 `warn: ARP discovery disabled (no capture permission)`，
-  **其余引擎不受影响**，扫描照常进行。
-- 全局 socket 端口被占且 `port_sharing` 关闭时，该 socket 降级为 `warn` + 跳过（C# 行为一致），
-  不导致整次扫描失败。
+### OUI vendor annotation
 
-## 4. 测试 Fixtures
+MAC rows reported by the ARP engine get a vendor suffix, e.g.
+`84:7b:57:xx:xx:xx (Intel Corporate)`. Lookup order: system `ieee-data` package →
+`~/.cache/uscan/oui.txt` (via `uscan update-oui`) → a compressed database embedded in the
+binary (~407 KB, 39,982 IEEE entries), so annotation works out of the box. Refreshing the
+embedded database: `universal-scanner/src/oui_data/README.md`.
 
-`universal-scanner/tests/fixtures/` 下 **32 个 `.selftest` 报文**（覆盖全部 28 个引擎，部分引擎
-双 fixture），多数来自 C# 仓库真实报文；`Arp.selftest` 为**合成** fixture（42 字节 GARP 帧，
-无 C# 对应物，spec §3.6）。每个引擎的源地址合成规则为 `240.0.<id>.<minor>`（id = 注册表 ID）。
+## Protocol engines
 
-`uscan selftest` 即离线回归（无需真实硬件），全部 fixture 全绿即代表解析层行为级一致。
-说明见 `universal-scanner/tests/fixtures/README.md`。
+`uscan list-protocols` prints this same table. Registry IDs are inherited from the C# original
+(they also fix the selftest source addresses `240.0.<id>.<minor>`); IDs 21/22/27 are the
+C#-disabled Dlink / Hid / Microsens slots and are not implemented here.
 
-## 5. 库用法 / Library usage
+| ID | Engine | Port | Listen | |
+|---:|---|---|---|---|
+| 1 | SSDP | 1900 | multicast 239.255.255.250:1900 | UPnP rootdevice |
+| 2 | WSDiscovery | 3702 | multicast 239.255.255.250:3702 | WS-Discovery / ONVIF probe |
+| 3 | Dahua | 5050 | global + ifaces :5050 | legacy probe |
+| 4 | Dahua | 37810 | multicast 239.255.255.251:37810 | subnet scan (netscan) |
+| 5 | Hikvision | 37020 | multicast 239.255.255.250:37020 | |
+| 6 | Axis | 5353 | mDNS broker | |
+| 7 | Bosch | 1758 | global + ifaces :1758 | video server |
+| 8 | Google | 5353 | mDNS broker | Chromecast |
+| 9 | Hanwha | 7711 | global + ifaces :7711 | Samsung |
+| 10 | Vivotek | 10000 | ifaces only :10000 | |
+| 11 | Sony | 2380 | ifaces only :2380 | |
+| 12 | Ubiquiti | 10001 | global + ifaces :10001 | UniFi |
+| 13 | 360Vision | 3600 | global + ifaces :3600 | |
+| 14 | NiceVision | 2007 | global + ifaces :2007 | |
+| 15 | Panasonic | 10670 | global + ifaces :10670 | |
+| 16 | Arecont | 5353 | mDNS broker | |
+| 17 | GigEVision | 3956 | ifaces only :3956 | |
+| 18 | VStarcam | 8600 | global + ifaces :8600 | |
+| 19 | Eaton | 4679 | global + ifaces :4679 | IPM / UPS |
+| 20 | Foscam | 10000 | global + ifaces :10000 | |
+| 23 | Lantronix | 30718 | global + ifaces :30718 | also covers Vauban |
+| 24 | Microchip | 30303 | global + ifaces :30303 | also covers GCE Electronics |
+| 25 | Advantech | 5048 | ifaces only :5048 | |
+| 26 | Eden | 8088 | global + ifaces :8088 | Eden Optima |
+| 28 | CyberPower | 53566 | global + ifaces :53566 | UPS |
+| 29 | MSSQL | 1434 | global + ifaces :1434 | SQL Server Browser |
+| 30 | ARP | — | pcap L2 capture | ARP/GARP, Rust-only |
+| 31 | TVT | 23456 | multicast 234.55.55.55/.56:23456 | MHED, reverse-engineered |
+
+The mDNS broker itself has no registry ID.
+
+## Library
 
 ```rust
 use universal_scanner::{Config, Scanner, DeviceTable};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let (mut scanner, mut rx) = Scanner::new(Config::default(), None, None)?; // 全部引擎
-    scanner.start().await?;   // 绑定接口 socket + spawn 接收任务
-    scanner.scan()?;          // 发送一轮探测（立即返回）
+    let (mut scanner, mut rx) = Scanner::new(Config::default(), None, None)?; // all engines
+    scanner.start().await?;    // bind sockets, spawn receive tasks
+    scanner.scan()?;           // one probe round; returns immediately
     let mut table = DeviceTable::new(Config::default().force_generic_protocols);
-    while let Some(d) = rx.recv().await {            // 逐条消费发现结果
-        if let Some(d) = table.add(d, true, false) { println!("{:?}", d); }
+    while let Some(d) = rx.recv().await {
+        if let Some(d) = table.add(d, true, false) {  // dedupe + version preference
+            println!("{:?}", d);
+        }
     }
-    scanner.stop().await?;    // 取消全部任务
+    scanner.stop().await?;
     Ok(())
 }
 ```
 
-API：`Scanner::new(Config, Option<&[protocol]>, Option<pcap_out>) -> (Scanner, rx)` →
-`start().await` → `scan()` → drain `rx`（`Device`）→ `DeviceTable::add` 去重 + 版本择优 → `stop().await`。
-`Scanner` 可重复 `start()`（每次按注册表重建全新引擎实例 + 新 `CancellationToken`）。
+`Scanner::new(config, protocols, pcap_out)` builds the engine set (the name filter is
+case-insensitive; a typo lists the valid names). The lifecycle is restartable: each `start()`
+creates fresh engine instances and a cancellation token, and `stop()` cancels and joins
+everything.
 
-## 6. 范围外 / Out of scope
+## Testing
 
-- WinForms UI（表格交互、CSV 对话框、双击开浏览器、单实例、更新检查）。
-- Windows 平台与 Windows 注册表（配置改为 TOML + CLI）。
-- C# 中已禁用的 Dlink / Hid / Microsens 协议。
-- Device Management / Streaming 层子系统：ONVIF SOAP 配置、DHCP vendor option、HTTP/REST、
-  RTSP、SIP/GB28181、云注册 —— 各自独立，后续按 **ONVIF Profile T** 优先拆子项目（spec §10）。
+- `cargo test --workspace` — 268 tests, all passing (at the time of writing).
+- `uscan selftest` — the offline regression. `universal-scanner/tests/fixtures/` holds 32
+  fixtures: 30 are real captures from the C# repository, `Arp.selftest` is synthetic (a 42-byte
+  GARP frame, no C# counterpart), and `TVT.selftest` is a sanitized capture from a live TVT
+  device.
+- Coverage (`cargo llvm-cov --workspace`): 92.57% of library lines (14,663 lines, 1,089
+  uncovered). The uncovered core is documented, not aspirational: `arp/capture.rs` (pcap
+  capture thread, needs root and a live interface), `netscan.rs` (a real 254-host sweep), and
+  `engine.rs` glue (real socket sends).
 
-## 7. Quality（T58）
+## Layout
 
-质量门禁：`cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`。
+```
+universal-scanner/     # library crate
+  src/scanner.rs       # runtime: engine registry, start/scan/stop
+  src/engine.rs        # ScanEngine trait, EngineContext
+  src/devices.rs       # Device, DeviceTable (dedupe, version preference)
+  src/net.rs           # socket wrappers: global / interface / multicast
+  src/mdns.rs          # mDNS broker (DNS wire parse + domain registry)
+  src/arp/             # ARP frame build/parse, pcap capture/inject
+  src/protocols/       # 28 engines, one file each
+  src/oui.rs           # IEEE OUI lookup
+  src/selftest.rs      # fixture replay table
+  src/tvt_provision.rs # TVT L2 set-IP packet
+  tests/fixtures/      # 32 .selftest captures
+uscan/                 # CLI crate
+  src/cli.rs           # clap definitions
+  src/run.rs           # scan loop: stream / rescan / timeout / signals
+  src/output.rs        # table / csv / json / tsv renderers
+  src/config.rs        # CLI > TOML > defaults merge
+```
 
-- **universal-scanner lib 行覆盖率：93.38%**（13,151 行，871 未覆盖；`cargo llvm-cov --workspace` 实测）。
-- 全工作区测试：**239 passed / 0 failed**。
-- 未追覆盖率（已文档化排除）：`arp/capture.rs`（pcap 捕获线程，需 root + libpcap）、
-  `netscan.rs`（需活动网卡 + 254 主机扫描）、`engine.rs` 的 `send_all`（需真实 socket 发送）。
-  这些路径不计入 80% 目标。
+## Out of scope
 
-## English summary
+- The WinForms UI: grid interaction, CSV dialog, double-click-to-browse, single-instance and
+  update checks.
+- Windows. The C# app's registry settings are replaced by TOML + CLI flags.
+- The C#-disabled Dlink / Hid / Microsens protocols.
+- The device-management and streaming layers from the C# project (ONVIF SOAP configuration,
+  DHCP vendor options, HTTP/REST, RTSP, SIP/GB28181, cloud registration) — separate efforts,
+  with ONVIF Profile T planned first.
 
-UniversalScanner (Rust) is a behavioral re-implementation of the C# UniversalScanner network
-device-discovery tool, split into a library crate (`universal-scanner`) and a CLI (`uscan`), with
-no UI. It ships **28 protocol engines** (26 faithful C# ports + new ARP/GARP L2 and TVT engines) plus a
-shared mDNS broker, licensed LGPL-3.0.
+## Provenance
 
-Build with `cargo build --release` (needs `libpcap-dev` + `pkg-config` on Linux; Rust ≥ 1.75).
-CLI: `uscan` (default scan), `uscan scan --protocols ... --format ...`, `uscan selftest`,
-`uscan selftest2pcap in.selftest out.pcap`, `uscan list-protocols`. Configuration merges
-CLI > TOML file > defaults across 10 boolean keys. ARP capture needs `CAP_NET_RAW` (Linux) or
-`/dev/bpf` (macOS); without it the ARP engine degrades gracefully while all other engines run.
-Offline regression uses 31 `.selftest` fixtures (the synthetic `Arp.selftest` included) replayed by
-`uscan selftest`. Library entry points: `Scanner::new` → `start().await` → `scan()` → drain the
-`Device` receiver → `DeviceTable::add` → `stop().await`. Measured lib line coverage: 93.38%
-(239 tests passing).
+- Original tool: [UniversalScanner (C#)](https://github.com/julienblitte/UniversalScanner) by
+  Julien Blitte, LGPL-3.0. Its protocols were all reverse-engineered by packet observation
+  (no decompilation), for interoperability.
+- Design spec for this port:
+  `../UniversalScanner/docs/superpowers/specs/2026-08-20-universal-scanner-rust-design.md`
+  (lives in the C# repository tree).
+
+## License
+
+LGPL-3.0, same as the original. See [LICENSE](LICENSE).
