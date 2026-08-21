@@ -19,6 +19,7 @@ async fn main() {
             dest_port,
         }) => commands::run_selftest2pcap(&in_file, &out_file, dest_port),
         Some(cli::Cmd::ListProtocols) => commands::run_list_protocols(),
+        Some(cli::Cmd::UpdateOui) => commands::run_update_oui(),
     };
     std::process::exit(code);
 }

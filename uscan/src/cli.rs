@@ -36,6 +36,8 @@ pub enum Cmd {
     },
     /// 列出全部协议引擎
     ListProtocols,
+    /// 下载 IEEE OUI 厂家数据库到用户缓存（ARP 输出的厂家标注数据源）
+    UpdateOui,
 }
 
 /// 扫描参数（含 10 对对称 flag，CLI > TOML > 默认值，见 config.rs）。

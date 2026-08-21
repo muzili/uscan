@@ -273,3 +273,17 @@ fn proto_meta(id: u16) -> Meta {
         },
     }
 }
+
+/// 下载 IEEE OUI 厂家数据库到用户缓存（ARP 厂家标注数据源）。
+pub fn run_update_oui() -> i32 {
+    match universal_scanner::oui::download() {
+        Ok(dest) => {
+            println!("OUI database saved to {}", dest.display());
+            0
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            1
+        }
+    }
+}
