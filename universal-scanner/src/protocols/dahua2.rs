@@ -4,7 +4,9 @@ use crate::devices::Device;
 use crate::engine::{EngineContext, ScanEngine};
 use crate::net::SocketSet;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::Mutex;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 const GROUP: Ipv4Addr = Ipv4Addr::new(239, 255, 255, 251);
 const PORT: u16 = 37810;
@@ -33,13 +35,49 @@ fn build_probe() -> Vec<u8> {
 
 pub struct Dahua2 {
     socks: SocketSet,
+    /// 当前 netscan sweep 的取消令牌；新一轮 scan 先取消上一轮（C# Thread.Abort 语义，同 Arecont）。
+    sweep: Mutex<Option<CancellationToken>>,
 }
 
 impl Default for Dahua2 {
     fn default() -> Self {
         Self {
             socks: SocketSet::new(),
+            sweep: Mutex::new(None),
         }
+    }
+}
+
+impl Dahua2 {
+    /// C# `Dahua2.scan` → `if (Config.DahuaNetScan) sendNetScan(port)`：
+    /// 新一轮先取消上一轮 sweep（C# `scannerThread.Abort` 语义），再 spawn 可取消的子网扫描。
+    fn start_netscan(&self, ctx: &EngineContext, probe: &[u8]) {
+        let sweep = CancellationToken::new();
+        {
+            let mut cur = self.sweep.lock().unwrap();
+            if let Some(old) = cur.replace(sweep.clone()) {
+                old.cancel();
+            }
+        }
+        let socks = self.socks.clone();
+        let logger = ctx.logger.clone();
+        let cancel = ctx.cancel.clone();
+        let task_id = ctx.task_id;
+        tokio::spawn(crate::netscan::netscan(
+            socks,
+            logger,
+            cancel,
+            sweep,
+            task_id,
+            probe.to_vec(),
+            PORT,
+        ));
+    }
+
+    /// 测试用：当前 sweep 的取消令牌（验证 scan 接线与"取消上一轮"语义）。
+    #[cfg(test)]
+    fn sweep_token(&self) -> Option<CancellationToken> {
+        self.sweep.lock().unwrap().clone()
     }
 }
 
@@ -92,7 +130,10 @@ impl ScanEngine for Dahua2 {
         let probe = build_probe();
         let mut failed = self.socks.send_multicast(GROUP, PORT, &probe);
         failed += self.socks.send_broadcast(PORT, &probe);
-        // netscan: T49 — C#: if (Config.DahuaNetScan) sendNetScan(port)；届时由 config.dahua_net_scan 触发 spawn
+        // C# if (Config.DahuaNetScan) sendNetScan(port)：spawn 可取消的 sweep（T49）
+        if ctx.config.dahua_net_scan {
+            self.start_netscan(ctx, &probe);
+        }
         if failed > 0 {
             ctx.logger
                 .warn(ctx.task_id, &format!("{} Dahua sends failed", failed));
@@ -222,12 +263,62 @@ fn skip_spaces(s: &str, i: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     /// 按 C# Dahua2Header 布局构造 32B 头 + body（packetSize1/2 = body 长，LE）。
     fn frame(body: &str) -> Vec<u8> {
         let mut f = header(body.len() as u32).to_vec();
         f.extend_from_slice(body.as_bytes());
         f
+    }
+
+    /// 构造 dahua_net_scan 可控的 EngineContext（空 socks，无需网络/特权）。
+    fn scan_ctx(dahua_net_scan: bool) -> EngineContext {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        EngineContext {
+            config: Arc::new(crate::Config {
+                dahua_net_scan,
+                ..Default::default()
+            }),
+            ports: Arc::new(Mutex::new(crate::ports::PortProvider::new())),
+            reporter: tx,
+            mdns: crate::mdns::MdnsBroker::new_for_test(),
+            logger: Arc::new(crate::log::Logger::new(crate::log::Level::Debug)),
+            pcap: None,
+            cancel: CancellationToken::new(),
+            task_id: 4,
+        }
+    }
+
+    #[tokio::test]
+    async fn scan_netscan_enabled_spawns_and_cancels_previous() {
+        // C# if (Config.DahuaNetScan) sendNetScan(port)：dahua_net_scan=true → scan 触发 spawn
+        let e = Dahua2::default();
+        let ctx = scan_ctx(true);
+        e.scan(&ctx).unwrap();
+        let t1 = e
+            .sweep_token()
+            .expect("sweep should be active when dahua_net_scan=true");
+        assert!(!t1.is_cancelled());
+        // 新一轮 scan：先取消上一轮 sweep（C# scannerThread.Abort 语义）
+        e.scan(&ctx).unwrap();
+        let t2 = e
+            .sweep_token()
+            .expect("new sweep should be active after second scan");
+        assert!(!t2.is_cancelled());
+        assert!(
+            t1.is_cancelled(),
+            "previous sweep must be cancelled by the new scan"
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_netscan_disabled_no_sweep() {
+        // dahua_net_scan=false（默认）→ 仅广播/组播，不 spawn netscan（sweep 保持 None）
+        let e = Dahua2::default();
+        let ctx = scan_ctx(false);
+        e.scan(&ctx).unwrap();
+        assert!(e.sweep_token().is_none());
     }
 
     #[test]

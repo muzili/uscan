@@ -144,9 +144,19 @@ pub async fn recv_loop(
 /// C# ScanEngine 的 socket 列表 + send() 的"从所有活动 socket 各发一份"。
 /// 存 socket2::Socket（同步 send_to，与 tokio 版同 fd 共享非阻塞模式）；
 /// recv 侧仍用对应的 tokio UdpSocket（recv_loop）。
-#[derive(Default)]
+/// socket 列表置于 `Arc<Mutex<…>>`：socket2::Socket 非 Clone，共享列表即可被
+/// spawn 的子网扫描任务复用（C# interfacesListerner 语义）。
+#[derive(Clone)]
 pub struct SocketSet {
-    socks: std::sync::Mutex<Vec<socket2::Socket>>,
+    socks: Arc<std::sync::Mutex<Vec<socket2::Socket>>>,
+}
+
+impl Default for SocketSet {
+    fn default() -> Self {
+        Self {
+            socks: Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
 }
 
 impl SocketSet {

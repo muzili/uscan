@@ -7,6 +7,7 @@ pub mod iface;
 pub mod log;
 pub mod mdns;
 pub mod net;
+pub mod netscan;
 pub mod pcap;
 pub mod ports;
 pub mod protocols;
