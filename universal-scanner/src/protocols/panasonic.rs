@@ -156,6 +156,7 @@ impl ScanEngine for Panasonic {
             return Vec::new();
         };
         vec![Device {
+            mac: serial.clone(),
             protocol: "Panasonic".into(),
             version: 1,
             ip,
@@ -199,6 +200,7 @@ mod tests {
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip, "192.168.1.50".parse::<IpAddr>().unwrap());
         assert_eq!(devs[0].device_type, "KX-A");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 
@@ -291,6 +293,7 @@ mod tests {
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "240.0.15.0");
         assert_eq!(devs[0].device_type, "Virtual\0\0\0\0\0\0\0\0\0");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 }

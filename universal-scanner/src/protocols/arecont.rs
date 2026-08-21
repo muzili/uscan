@@ -97,7 +97,8 @@ pub fn arecont_convert(answers: &[MdnsAnswer], cfg: &crate::Config) -> Vec<Devic
         Some(s) => s.replace("AV", "001A07"),
         None => String::new(),
     };
-    crate::mdns::report_addresses("Arecont", 1, &addresses, &model, &serial, cfg)
+    // 注：Arecont 的 "MAC" TXT 变量是设备 ID 串（如 AV334455-FW.../型号），非 MAC 地址 → mac 列留空
+    crate::mdns::report_addresses("Arecont", 1, &addresses, &model, &serial, "", cfg)
 }
 
 impl ScanEngine for Arecont {

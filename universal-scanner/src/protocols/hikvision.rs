@@ -95,6 +95,7 @@ impl ScanEngine for Hikvision {
             .parse::<std::net::IpAddr>()
             .unwrap_or_else(|_| from.ip());
         let mut devs = vec![Device {
+            mac: String::new(),
             protocol: "Hikvision".into(),
             version: 1,
             ip,
@@ -105,6 +106,7 @@ impl ScanEngine for Hikvision {
         if let Some(v6) = ipv6_str {
             if let Ok(ip6) = v6.parse::<std::net::IpAddr>() {
                 devs.push(Device {
+                    mac: String::new(),
                     protocol: "Hikvision".into(),
                     version: 1,
                     ip: ip6,

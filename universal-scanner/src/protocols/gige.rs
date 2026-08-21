@@ -110,7 +110,7 @@ impl ScanEngine for GigEVision {
         );
         let mut serial = cstring(&data[0xE0..0xF0]); // plSerialNumber
         if serial.is_empty() {
-            serial = mac;
+            serial = mac.clone();
         }
         let mut vendor = cstring(&data[0x50..0x70]); // plManufacturer
         if vendor.is_empty() {
@@ -121,6 +121,7 @@ impl ScanEngine for GigEVision {
             model = cstring(&data[0xF0..0x100]); // 回退 plUsername
         }
         vec![Device {
+            mac,
             protocol: vendor,
             version: 0,
             ip,
@@ -170,6 +171,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "GigEVision"); // 厂商空 → 回退
         assert_eq!(devs[0].version, 0);
         assert_eq!(devs[0].ip, from.ip());
+        assert_eq!(devs[0].mac, "00:00:00:00:00:00");
         assert_eq!(devs[0].serial, "00:00:00:00:00:00"); // serial 空 → MAC
         assert_eq!(devs[0].device_type, ""); // model/username 均空
     }
@@ -193,6 +195,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "GigA"); // protocol 列 = 厂商名
         assert_eq!(devs[0].version, 0);
         assert_eq!(devs[0].ip, "192.168.7.9".parse::<IpAddr>().unwrap());
+        assert_eq!(devs[0].mac, "11:22:33:44:55:66");
         assert_eq!(devs[0].device_type, "M1");
         assert_eq!(devs[0].serial, "S123");
     }
@@ -213,6 +216,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "GigEVision");
         assert_eq!(devs[0].version, 0);
         assert_eq!(devs[0].ip.to_string(), "0.17.0.240");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Virtual device");
         assert_eq!(devs[0].serial, "123456789");
     }

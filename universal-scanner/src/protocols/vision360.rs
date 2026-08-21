@@ -110,6 +110,7 @@ impl ScanEngine for Vision360 {
         let serial = get("KEY").unwrap_or_else(|| "Unknown".to_string());
         // C#：ip 恒为 from；version 1
         vec![Device {
+            mac: String::new(),
             protocol: "360Vision".into(),
             version: 1,
             ip: from.ip(),

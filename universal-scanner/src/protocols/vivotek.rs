@@ -162,6 +162,7 @@ impl ScanEngine for Vivotek {
             return Vec::new();
         };
         vec![Device {
+            mac: mac.clone(),
             protocol: "Vivotek".into(),
             version: 1,
             ip,
@@ -207,6 +208,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Vivotek");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip, "192.168.1.60".parse::<IpAddr>().unwrap());
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "V410");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
@@ -291,6 +293,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Vivotek");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "240.0.10.0");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Virtual");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }

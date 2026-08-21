@@ -114,8 +114,8 @@ impl ScanEngine for Dahua1 {
         // section 2：≤17B MAC 串（byte[]，不截 NUL），余下字节覆盖 type
         let mut index = SECTION1_LEN;
         let mac_size = std::cmp::min(MAC_MAX, section2_len);
-        let mut device_serial =
-            String::from_utf8_lossy(&data[index..index + mac_size]).into_owned();
+        let mac_raw = String::from_utf8_lossy(&data[index..index + mac_size]).into_owned();
+        let mut device_serial = mac_raw.clone();
         index += mac_size;
         if section2_len > mac_size {
             let override_len = section2_len - mac_size;
@@ -139,7 +139,9 @@ impl ScanEngine for Dahua1 {
                 device_ipv6 = Some(s);
             }
         }
+        let mac = crate::devices::normalize_mac(&mac_raw);
         let mut devs = vec![Device {
+            mac: mac.clone(),
             protocol: "Dahua".into(),
             version: 1,
             ip,
@@ -150,6 +152,7 @@ impl ScanEngine for Dahua1 {
         if let Some(v6) = device_ipv6 {
             if let Ok(ip6) = v6.parse::<std::net::IpAddr>() {
                 devs.push(Device {
+                    mac,
                     protocol: "Dahua".into(),
                     version: 2,
                     ip: ip6,

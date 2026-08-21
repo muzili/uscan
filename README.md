@@ -79,7 +79,8 @@ uscan tvt-set --mac 00:18:ae:9b:e2:80 --ip 192.168.0.90 --dry-run     # 只打�
 
 **输出格式**（`--format`）：`table`（默认）/ `csv` / `json`（JSON Lines）/ `tsv`。
 批量输出加 `--batch`（结束时按发现顺序一次性输出）。
-CSV/TSV 表头恒为 `protocol,version,ip,type,serial`（version 列对齐 C# 隐藏列导出；
+CSV/TSV 表头恒为 `protocol,version,ip,mac,type,serial`（version 列对齐 C# 隐藏列导出；
+mac 列为 Rust 版新增，位于 ip 之后——协议应答不含 MAC 地址的引擎（如 Hikvision/SSDP）该列为空；
 每字段按 C# `exportAsCSV` 规则双引号包裹、内部 `"` 翻倍）。
 
 **配置文件（TOML，10 个开关，CLI > 文件 > 内置默认）：**

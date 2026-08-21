@@ -98,6 +98,7 @@ impl ScanEngine for Eden {
             .parse::<std::net::IpAddr>()
             .unwrap_or_else(|_| from.ip());
         vec![Device {
+            mac: String::new(),
             protocol: "Eden".into(),
             version: 1,
             ip,

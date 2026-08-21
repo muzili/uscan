@@ -11,6 +11,7 @@ const PORT: u16 = 8600; // C# port
 const ANSWER_MAGIC: u32 = 0x44480108; // C# answerMagic（包内 BE）
 const HEADER_SIZE: usize = 0x100; // C# VSCAnswerHeader 结构体大小
 const IP_OFF: usize = 0x04; // C# String16bytes ip
+const MAC_OFF: usize = 0x54; // C# MacAddress（12B，C# 未使用）
 const SERIAL_OFF: usize = 0x5C; // C# String32bytes serial
 const NAME_OFF: usize = 0x7C; // C# String32bytes name
 
@@ -109,8 +110,20 @@ impl ScanEngine for Vstarcam {
         let ip = cstring(&data[IP_OFF..IP_OFF + 16])
             .parse::<IpAddr>()
             .unwrap_or_else(|_| from.ip());
+        // C# 的 12B mac 字段（@0x54）从未使用；后 6 字节与 port/serial 显式重叠，
+        // 故取前 6 字节为 MAC（Rust 版 mac 列）
+        let mac = format!(
+            "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+            data[MAC_OFF],
+            data[MAC_OFF + 1],
+            data[MAC_OFF + 2],
+            data[MAC_OFF + 3],
+            data[MAC_OFF + 4],
+            data[MAC_OFF + 5]
+        );
         // C#：version 1
         vec![Device {
+            mac,
             protocol: "VStarcam".into(),
             version: 1,
             ip,
@@ -196,6 +209,17 @@ mod tests {
     }
 
     #[test]
+    fn vstarcam_mac_extracted() {
+        // 12B mac 字段取前 6 字节（大写冒号）
+        let mut f = vstarcam_frame(&padded("10.0.0.9"), &padded("SN1"), &padded("Cam"));
+        f[MAC_OFF..MAC_OFF + 6].copy_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+        let from: SocketAddr = "240.0.18.0:1024".parse().unwrap();
+        let devs = Vstarcam::default().parse(from, &f);
+        assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].mac, "AA:BB:CC:DD:EE:FF");
+    }
+
+    #[test]
     fn vstarcam_nul_truncated_fields() {
         // name/serial 的 NUL 填充经 C# MemoryUtils.GetString 语义截断
         let f = vstarcam_frame(&padded("10.0.0.9"), &padded("SN1"), &padded("Cam"));
@@ -228,6 +252,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "VStarcam");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "240.0.18.0");
+        assert_eq!(devs[0].mac, "11:22:33:44:55:66");
         assert_eq!(devs[0].device_type, "Virtual Camera");
         assert_eq!(devs[0].serial, "123456789");
     }

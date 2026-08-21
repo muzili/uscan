@@ -103,6 +103,7 @@ impl ScanEngine for Hanwha {
             .parse::<std::net::IpAddr>()
             .unwrap_or_else(|_| from.ip());
         vec![Device {
+            mac: serial.clone(), // C# mac_address 字段（冒号分隔字符串），兼作序列号
             protocol: "Hanwha".into(),
             version: 1,
             ip,
@@ -160,6 +161,7 @@ mod tests {
             devs[0].ip,
             "192.168.1.50".parse::<std::net::IpAddr>().unwrap()
         );
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Hanwha cam");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
@@ -202,6 +204,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Hanwha");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "240.0.9.0");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Virtual");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }

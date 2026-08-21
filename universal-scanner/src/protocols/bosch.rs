@@ -117,6 +117,7 @@ impl ScanEngine for Bosch {
                 data[0x08], data[0x09], data[0x0A], data[0x0B], data[0x0C], data[0x0D]
             );
             return vec![Device {
+                mac: serial.clone(),
                 protocol: "Bosch".into(),
                 version: 1,
                 ip: std::net::IpAddr::V4(std::net::Ipv4Addr::new(b[0], b[1], b[2], b[3])),
@@ -130,6 +131,9 @@ impl ScanEngine for Bosch {
         let device_serial = extract_xml_string(&xml, "serialNumber")
             .or_else(|| extract_xml_string(&xml, "physAddress"))
             .unwrap_or_default();
+        let mac = extract_xml_string(&xml, "physAddress")
+            .map(|m| crate::devices::normalize_mac(&m))
+            .unwrap_or_default();
         let ipv4_str = extract_xml_string(&xml, "unitIPAddress").unwrap_or_default();
         let ipv6_str = extract_xml_string(&xml, "unitIPv6Address").unwrap_or_default();
         // C# IPAddress.TryParse 接受 v4/v6；失败 → from（warn 由 T48 侧记）
@@ -137,6 +141,7 @@ impl ScanEngine for Bosch {
             .parse::<std::net::IpAddr>()
             .unwrap_or_else(|_| from.ip());
         let mut devs = vec![Device {
+            mac: mac.clone(),
             protocol: "Bosch".into(),
             version: 2,
             ip,
@@ -146,6 +151,7 @@ impl ScanEngine for Bosch {
         // IPv6 解析成功 → 另报一条（version 2）
         if let Ok(ip6) = ipv6_str.parse::<std::net::IpAddr>() {
             devs.push(Device {
+                mac,
                 protocol: "Bosch".into(),
                 version: 2,
                 ip: ip6,
@@ -205,6 +211,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Bosch");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip, "192.168.1.100".parse::<IpAddr>().unwrap());
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Bosch");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
@@ -226,6 +233,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Bosch");
         assert_eq!(devs[0].version, 2);
         assert_eq!(devs[0].ip, "192.168.9.9".parse::<IpAddr>().unwrap());
+        assert_eq!(devs[0].mac, "AA:BB:CC:DD:EE:FF");
         assert_eq!(devs[0].device_type, "Cam (XML)");
         assert_eq!(devs[0].serial, "SN-99");
     }
@@ -246,6 +254,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Bosch");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "0.7.0.240");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Bosch");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
@@ -266,6 +275,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Bosch");
         assert_eq!(devs[0].version, 2);
         assert_eq!(devs[0].ip.to_string(), "240.0.7.1");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Virtual (XML)");
         assert_eq!(devs[0].serial, "12345678:12345678");
         assert_eq!(devs[1].protocol, "Bosch");

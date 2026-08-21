@@ -118,6 +118,7 @@ impl ScanEngine for Foscam {
         let ip_raw = u32::from_le_bytes([buf[0x39], buf[0x3A], buf[0x3B], buf[0x3C]]);
         let device_type = buf[0x49];
         vec![Device {
+            mac: String::new(),
             protocol: "Foscam".into(),
             version: 1,
             ip: std::net::IpAddr::V4(Ipv4Addr::from(ip_raw.to_le_bytes())),

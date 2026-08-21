@@ -6,8 +6,28 @@ pub struct Device {
     pub protocol: String,
     pub version: u32,
     pub ip: IpAddr,
+    /// 大写冒号格式（`AA:BB:CC:DD:EE:FF`）；协议应答不含 MAC 时为空串。
+    pub mac: String,
     pub device_type: String,
     pub serial: String,
+}
+
+/// 把各协议 MAC 字符串（冒号/短横/无分隔、大小写混用）统一为输出列格式
+/// `AA:BB:CC:DD:EE:FF`；剥离分隔符后不足 12 个 hex 位 → 原样返回（协议原始值）。
+pub fn normalize_mac(raw: &str) -> String {
+    let hex: String = raw
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if hex.len() == 12 {
+        (0..6)
+            .map(|i| &hex[i * 2..i * 2 + 2])
+            .collect::<Vec<_>>()
+            .join(":")
+    } else {
+        raw.to_string()
+    }
 }
 
 /// 对应 C# UI `addDevice`：去重（IP 或 protocol+IP）、版本择优（严格大于）、地址族过滤。
@@ -49,10 +69,17 @@ impl DeviceTable {
                 Some(d)
             }
             Some(existing) if device.version > existing.version => {
+                // mac 择优：新值空 → 保留旧值（尽量不丢 MAC，与 ip 保留语义一致）
+                let mac = if device.mac.is_empty() {
+                    existing.mac.clone()
+                } else {
+                    device.mac
+                };
                 let updated = Device {
                     protocol: device.protocol,
                     version: device.version,
                     ip: existing.ip,
+                    mac,
                     device_type: device.device_type,
                     serial: device.serial,
                 };
@@ -89,9 +116,16 @@ mod tests {
             protocol: proto.into(),
             version,
             ip: ip.parse::<IpAddr>().unwrap(),
+            mac: String::new(),
             device_type: ty.into(),
             serial: serial.into(),
         }
+    }
+
+    fn dev_with_mac(mac: &str) -> Device {
+        let mut d = dev("X", 1, "10.0.0.5", "t", "s");
+        d.mac = mac.into();
+        d
     }
 
     #[test]
@@ -133,6 +167,37 @@ mod tests {
             ),
             None
         );
+    }
+
+    // mac 择优（版本更新时）：新值非空 → 取新；新值空 → 保留旧值。
+    #[test]
+    fn mac_retained_when_new_empty() {
+        let mut t = DeviceTable::new(false);
+        t.add(dev_with_mac("AA:BB:CC:DD:EE:FF"), true, false);
+        let higher = dev("Y", 2, "10.0.0.5", "t", "s2");
+        let updated = t.add(higher, true, false).unwrap();
+        assert_eq!(updated.mac, "AA:BB:CC:DD:EE:FF");
+    }
+
+    #[test]
+    fn mac_replaced_when_new_nonempty() {
+        let mut t = DeviceTable::new(false);
+        t.add(dev("X", 1, "10.0.0.5", "t", "s"), true, false);
+        let mut higher = dev_with_mac("11:22:33:44:55:66");
+        higher.version = 2;
+        let updated = t.add(higher, true, false).unwrap();
+        assert_eq!(updated.mac, "11:22:33:44:55:66");
+    }
+
+    #[test]
+    fn normalize_mac_variants() {
+        assert_eq!(normalize_mac("aa-bb-cc-dd-ee-ff"), "AA:BB:CC:DD:EE:FF");
+        assert_eq!(normalize_mac("001122334455"), "00:11:22:33:44:55");
+        assert_eq!(normalize_mac("00:11:22:33:44:55"), "00:11:22:33:44:55");
+        assert_eq!(normalize_mac("AA-BB-CC-DD-EE-FF"), "AA:BB:CC:DD:EE:FF");
+        // 非 12 hex → 原样（不误伤序列号之类的串）
+        assert_eq!(normalize_mac("123456789"), "123456789");
+        assert_eq!(normalize_mac(""), "");
     }
 
     #[test]

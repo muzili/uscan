@@ -116,6 +116,7 @@ impl ScanEngine for Mssql {
             i += 2;
         }
         vec![Device {
+            mac: String::new(),
             protocol: "MSSQL".into(),
             version: 1,
             ip: from.ip(),

@@ -94,6 +94,7 @@ impl ScanEngine for Ssdp {
             .unwrap_or_else(|| "anonymous".into());
         let serial = extract_uuid(&usn);
         vec![Device {
+            mac: String::new(),
             protocol: "SSDP".into(),
             version: 0,
             ip: from.ip(),

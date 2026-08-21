@@ -18,6 +18,9 @@ pub fn axis_convert(answers: &[MdnsAnswer], cfg: &crate::Config) -> Vec<Device> 
     let mut addresses: Vec<IpAddr> = Vec::new();
     let mut model: Option<String> = None;
     let mut serial: Option<String> = None;
+    let mut mac: Option<String> = None;
+    // " - " 回退产生的 serial（PTR 后缀即 MAC 时供 mac 列用）
+    let mut dash_serial: Option<String> = None;
     for a in answers {
         match &a.data {
             crate::mdns::MdnsData::A(ip) => addresses.push(*ip),
@@ -32,21 +35,34 @@ pub fn axis_convert(answers: &[MdnsAnswer], cfg: &crate::Config) -> Vec<Device> 
                         .unwrap_or_else(|| n.clone()),
                 );
             }
-            // C# if (serial == null)：仅首个 TXT（serial 已设时后续 TXT 整体跳过，含空数组也不越界）
-            crate::mdns::MdnsData::Txt(txt) if serial.is_none() => {
-                // C# typeTXT[0]：空数组越界异常 → 整包无上报（parity）
-                let first = match txt.first() {
-                    Some(s) => s,
-                    None => return Vec::new(),
-                };
-                // C# IndexOf('=')：首个 `=` 后（无 `=` 取全值）
-                serial = Some(
-                    first
-                        .split_once('=')
-                        .map(|(_, v)| v)
-                        .unwrap_or(first)
-                        .to_string(),
-                );
+            crate::mdns::MdnsData::Txt(txt) => {
+                // macaddress 键（Rust 版 mac 列；C# 不取用）
+                if mac.is_none() {
+                    for e in txt {
+                        if let Some((k, v)) = e.split_once('=') {
+                            if k.trim().eq_ignore_ascii_case("macaddress") {
+                                mac = Some(v.trim().to_string());
+                                break;
+                            }
+                        }
+                    }
+                }
+                // C# if (serial == null)：仅首个 TXT（serial 已设时后续 TXT 整体跳过，含空数组也不越界）
+                if serial.is_none() {
+                    // C# typeTXT[0]：空数组越界异常 → 整包无上报（parity）
+                    let first = match txt.first() {
+                        Some(s) => s,
+                        None => return Vec::new(),
+                    };
+                    // C# IndexOf('=')：首个 `=` 后（无 `=` 取全值）
+                    serial = Some(
+                        first
+                            .split_once('=')
+                            .map(|(_, v)| v)
+                            .unwrap_or(first)
+                            .to_string(),
+                    );
+                }
             }
             _ => {}
         }
@@ -58,12 +74,19 @@ pub fn axis_convert(answers: &[MdnsAnswer], cfg: &crate::Config) -> Vec<Device> 
     // C# IndexOf(" - ")：serial 未设置时取 " - " 之后（trim）；model 恒截为 " - " 之前（trim）
     if let Some(pos) = model.find(" - ") {
         if serial.is_none() {
-            serial = Some(model[pos + " - ".len()..].trim().to_string());
+            let suffix = model[pos + " - ".len()..].trim().to_string();
+            dash_serial = Some(suffix.clone());
+            serial = Some(suffix);
         }
         model = model[..pos].trim().to_string();
     }
     let serial = serial.unwrap_or_else(|| "unknown".into());
-    crate::mdns::report_addresses("Axis", 1, &addresses, &model, &serial, cfg)
+    // mac 列：macaddress 键优先；否则 " - " 回退的 serial（PTR 后缀即 MAC）
+    let mac = mac
+        .or(dash_serial)
+        .map(|m| crate::devices::normalize_mac(&m))
+        .unwrap_or_default();
+    crate::mdns::report_addresses("Axis", 1, &addresses, &model, &serial, &mac, cfg)
 }
 
 impl ScanEngine for Axis {
@@ -172,6 +195,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Axis");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip, "192.168.1.50".parse::<IpAddr>().unwrap());
+        assert_eq!(devs[0].mac, "");
         assert_eq!(devs[0].device_type, "cam123");
         assert_eq!(devs[0].serial, "ABC123");
     }
@@ -199,6 +223,7 @@ mod tests {
         let devs = axis_convert(&answers, &cfg);
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].device_type, "cam1");
+        assert_eq!(devs[0].mac, "A1:B2:C3:D4:E5:F6");
         assert_eq!(devs[0].serial, "A1B2C3D4E5F6");
     }
 
@@ -290,6 +315,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Axis");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "240.0.6.0");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Virtual");
         assert_eq!(devs[0].serial, "001122334455");
     }

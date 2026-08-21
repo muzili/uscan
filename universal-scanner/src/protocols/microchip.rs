@@ -84,6 +84,7 @@ impl ScanEngine for Microchip {
         //（manufacturer 保持 "Microchip"、mac 保持 ""）
         let Ok(text) = std::str::from_utf8(data) else {
             return vec![Device {
+                mac: String::new(),
                 protocol: "Microchip".into(),
                 version: 1,
                 ip: from.ip(),
@@ -108,6 +109,7 @@ impl ScanEngine for Microchip {
             return Vec::new();
         };
         vec![Device {
+            mac: crate::devices::normalize_mac(serial),
             protocol: protocol.into(),
             version: 1,
             ip: from.ip(),
@@ -130,6 +132,7 @@ mod tests {
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].protocol, "GCE");
         assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Virtual");
         assert_eq!(devs[0].serial, "00-11-22-33-44-55");
         assert_eq!(devs[0].ip.to_string(), "240.0.24.0");
@@ -144,6 +147,7 @@ mod tests {
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].protocol, "Microchip");
         assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Virtual");
         assert_eq!(devs[0].serial, "00-11-22-33-44-55");
         assert_eq!(devs[0].ip.to_string(), "240.0.24.0");
@@ -166,6 +170,7 @@ mod tests {
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].protocol, "Microchip");
         assert_eq!(devs[0].device_type, "Unknown");
+        assert_eq!(devs[0].mac, "");
         assert_eq!(devs[0].serial, "");
     }
 
@@ -185,6 +190,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Microchip");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "240.0.24.0");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Virtual");
         assert_eq!(devs[0].serial, "00-11-22-33-44-55");
     }
@@ -205,6 +211,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "GCE");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "240.0.24.0");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Virtual");
         assert_eq!(devs[0].serial, "00-11-22-33-44-55");
     }

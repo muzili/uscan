@@ -181,6 +181,9 @@ impl ScanEngine for Dahua2 {
                 device_ipv6 = Some(v6);
             }
         }
+        let mac = extract_json_string("mac", &body)
+            .map(|m| crate::devices::normalize_mac(&m))
+            .unwrap_or_default();
         let device_serial = extract_json_string("SerialNo", &body)
             .or_else(|| extract_json_string("mac", &body))
             .unwrap_or_else(|| "Dahua device".to_string());
@@ -191,6 +194,7 @@ impl ScanEngine for Dahua2 {
             ip = from.ip();
         }
         let mut devs = vec![Device {
+            mac: mac.clone(),
             protocol: "Dahua".into(),
             version: 2,
             ip,
@@ -201,6 +205,7 @@ impl ScanEngine for Dahua2 {
         if let Some(v6) = device_ipv6 {
             if let Ok(ip6) = v6.parse::<std::net::IpAddr>() {
                 devs.push(Device {
+                    mac,
                     protocol: "Dahua".into(),
                     version: 2,
                     ip: ip6,

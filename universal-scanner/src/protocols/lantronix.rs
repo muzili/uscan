@@ -110,6 +110,7 @@ impl ScanEngine for Lantronix {
                         _ => {}
                     }
                     return vec![Device {
+                        mac: serial.clone(),
                         protocol: "Vauban".into(),
                         version: 1,
                         ip: from.ip(),
@@ -121,6 +122,7 @@ impl ScanEngine for Lantronix {
             }
             MAGIC_VAUBAN_OLD => {
                 return vec![Device {
+                    mac: serial.clone(),
                     protocol: "Vauban".into(),
                     version: 1,
                     ip: from.ip(),
@@ -131,6 +133,7 @@ impl ScanEngine for Lantronix {
             _ => {}
         }
         vec![Device {
+            mac: serial.clone(),
             protocol: "Lantronix".into(),
             version: 1,
             ip: from.ip(),
@@ -170,6 +173,7 @@ mod tests {
             ("Lantronix", 1, "unknown")
         );
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].ip.to_string(), "240.0.23.0");
     }
 
@@ -185,6 +189,7 @@ mod tests {
             ("Vauban", "Verso+ 4")
         );
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
     }
 
     #[test]

@@ -35,7 +35,14 @@ pub fn arp_parse(frame_bytes: &[u8]) -> Vec<Device> {
         .map(|b| format!("{b:02x}"))
         .collect::<Vec<_>>()
         .join(":");
+    let mac = p
+        .src_mac
+        .iter()
+        .map(|b| format!("{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(":");
     vec![Device {
+        mac,
         protocol: "ARP".to_string(),
         version: 0,
         ip: IpAddr::V4(p.sender_ip),
@@ -205,6 +212,7 @@ mod tests {
         assert_eq!(d.version, 0);
         assert_eq!(d.ip.to_string(), "192.168.1.50");
         assert_eq!(d.device_type, "GARP");
+        assert_eq!(d.mac, "00:11:22:33:44:55");
         assert_eq!(d.serial, "00:11:22:33:44:55");
     }
 
@@ -220,6 +228,7 @@ mod tests {
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].device_type, "ARP");
         assert_eq!(devs[0].ip.to_string(), "10.0.0.8");
+        assert_eq!(devs[0].mac, "CC:CC:CC:CC:CC:CC");
     }
 
     #[test]

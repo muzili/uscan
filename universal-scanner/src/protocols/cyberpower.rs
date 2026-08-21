@@ -120,6 +120,10 @@ fn parse_stream(data: &[u8]) -> Option<Device> {
     // C# new IPAddress(NetworkToHostOrder32(ip_int))：BE → host
     let ip = Ipv4Addr::from(ip_int.to_be_bytes());
     Some(Device {
+        mac: format!(
+            "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+        ),
         protocol: "CyberPower".into(),
         version: 1,
         ip: ip.into(),
@@ -225,6 +229,7 @@ mod tests {
             "240.0.28.0".parse::<std::net::IpAddr>().unwrap()
         );
         assert_eq!(devs[0].device_type, "PDU1");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].serial, "001122334455"); // C# PhysicalAddress.ToString()（无分隔符）
     }
 
@@ -263,6 +268,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "CyberPower");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "240.0.28.0");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "Virtual");
         assert_eq!(devs[0].serial, "001122334455");
     }

@@ -130,6 +130,7 @@ impl ScanEngine for NiceVision {
         // name[16]@0x4A：首个 NUL 截断的 UTF-8 → model（C# MemoryUtils.GetString）
         let device_type = cstring(&data[0x4A..0x5A]);
         vec![Device {
+            mac: serial.clone(),
             protocol: "NiceVision".into(),
             version: 1,
             ip: std::net::IpAddr::V4(ip),
@@ -160,6 +161,7 @@ mod tests {
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].protocol, "NiceVision");
         assert_eq!(devs[0].version, 1);
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
         assert_eq!(devs[0].ip.to_string(), "5.1.168.192"); // quirk：字节翻转
         assert_eq!(devs[0].device_type, "NV-900");
@@ -191,6 +193,7 @@ mod tests {
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "0.14.0.240");
         assert_eq!(devs[0].device_type, "Virtual");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 }

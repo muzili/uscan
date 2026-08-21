@@ -129,6 +129,7 @@ impl ScanEngine for Sony {
             .parse::<std::net::IpAddr>()
             .unwrap_or_else(|_| from.ip());
         vec![Device {
+            mac: mac.map(crate::devices::normalize_mac).unwrap_or_default(),
             protocol: "Sony".into(),
             version: 1,
             ip,
@@ -169,6 +170,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Sony");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip, "240.0.11.0".parse::<IpAddr>().unwrap());
+        assert_eq!(devs[0].mac, "AA:BB:CC:DD:EE:FF");
         assert_eq!(devs[0].device_type, "Virtual");
         assert_eq!(devs[0].serial, "123456789");
     }
@@ -193,6 +195,16 @@ mod tests {
         let devs = Sony::default().parse(from, &f);
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].serial, "aa-bb-cc-dd-ee-ff");
+        assert_eq!(devs[0].mac, "AA:BB:CC:DD:EE:FF");
+    }
+
+    #[test]
+    fn sony_mac_absent_empty() {
+        // 无 mac 键 → mac 列空
+        let f = sony_frame(&["MODEL:Virtual", "IPADR:192.168.0.9"]);
+        let from: SocketAddr = "240.0.11.0:1024".parse().unwrap();
+        let devs = Sony::default().parse(from, &f);
+        assert_eq!(devs[0].mac, "");
     }
 
     #[test]
@@ -235,6 +247,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Sony");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "240.0.11.0");
+        assert_eq!(devs[0].mac, "AA:BB:CC:DD:EE:FF");
         assert_eq!(devs[0].device_type, "Virtual");
         assert_eq!(devs[0].serial, "123456789");
     }

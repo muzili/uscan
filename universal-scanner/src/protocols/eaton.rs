@@ -91,6 +91,7 @@ impl ScanEngine for Eaton {
             .unwrap_or_else(|| "Unknown".into());
         // C#：ip 恒为 from
         vec![Device {
+            mac: String::new(),
             protocol: "Eaton".into(),
             version: 1,
             ip: from.ip(),

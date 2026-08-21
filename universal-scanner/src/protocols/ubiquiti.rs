@@ -164,6 +164,7 @@ impl ScanEngine for Ubiquiti {
         // C#：无 macIPv4 的 IP → from.Address（v4/v6 均按原样）
         let ip = ip.map(std::net::IpAddr::V4).unwrap_or_else(|| from.ip());
         vec![Device {
+            mac: serial.clone(),
             protocol: "Ubiquiti".into(),
             version: 1,
             ip,
@@ -199,6 +200,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Ubiquiti");
         assert_eq!(devs[0].version, 1);
         // C# String.Format("{0:X2}") → 大写（plan 测试的小写断言与 C# 不符，按 C# 核定）
+        assert_eq!(devs[0].mac, "AA:BB:CC:DD:EE:FF");
         assert_eq!(devs[0].serial, "AA:BB:CC:DD:EE:FF");
         assert_eq!(devs[0].ip, "240.0.12.0".parse::<IpAddr>().unwrap()); // 无 macIPv4 → from
         assert_eq!(devs[0].device_type, "unknown");
@@ -260,6 +262,7 @@ mod tests {
         let devs = Ubiquiti::default().parse(from, &f);
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].ip, "192.168.1.77".parse::<IpAddr>().unwrap());
+        assert_eq!(devs[0].mac, "AA:BB:CC:DD:EE:FF");
         assert_eq!(devs[0].serial, "AA:BB:CC:DD:EE:FF");
         assert_eq!(devs[0].device_type, "UAP");
     }
@@ -276,6 +279,7 @@ mod tests {
         let from: SocketAddr = "240.0.12.0:1024".parse().unwrap();
         let devs = Ubiquiti::default().parse(from, &f);
         assert_eq!(devs.len(), 1);
+        assert_eq!(devs[0].mac, "00:00:00:00:00:00");
         assert_eq!(devs[0].serial, "00:00:00:00:00:00");
         assert_eq!(devs[0].ip, "10.0.0.1".parse::<IpAddr>().unwrap());
     }
@@ -296,6 +300,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "Ubiquiti");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "240.0.12.0");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "VIRTUAL");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }

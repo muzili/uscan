@@ -168,24 +168,26 @@ impl ScanEngine for Tvt {
                 t1
             }
         };
-        // 序列号：12B C 串；为空时回退 MAC（大写冒号格式）
+        // MAC 大写冒号格式（序列号为空时也用作回退）
+        let mac = format!(
+            "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+            data[OFF_MAC],
+            data[OFF_MAC + 1],
+            data[OFF_MAC + 2],
+            data[OFF_MAC + 3],
+            data[OFF_MAC + 4],
+            data[OFF_MAC + 5]
+        );
         let serial = {
             let s = cstring(&data[OFF_SERIAL..OFF_SERIAL + 12]);
             if s.is_empty() {
-                format!(
-                    "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-                    data[OFF_MAC],
-                    data[OFF_MAC + 1],
-                    data[OFF_MAC + 2],
-                    data[OFF_MAC + 3],
-                    data[OFF_MAC + 4],
-                    data[OFF_MAC + 5]
-                )
+                mac.clone()
             } else {
                 s
             }
         };
         vec![Device {
+            mac,
             protocol: "TVT".into(),
             version: 1,
             ip,
@@ -222,6 +224,7 @@ mod tests {
         assert_eq!(devs[0].protocol, "TVT");
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip, "192.168.0.88".parse::<IpAddr>().unwrap());
+        assert_eq!(devs[0].mac, "00:18:AE:9B:E2:80");
         assert_eq!(devs[0].device_type, "IPC");
         assert_eq!(devs[0].serial, "IE280042L467");
     }
@@ -247,6 +250,7 @@ mod tests {
         let from: SocketAddr = "240.0.31.0:1024".parse().unwrap();
         let devs = Tvt::default().parse(from, &a);
         assert_eq!(devs[0].serial, "AA:BB:CC:DD:EE:FF");
+        assert_eq!(devs[0].mac, "AA:BB:CC:DD:EE:FF");
     }
 
     #[test]
@@ -274,6 +278,7 @@ mod tests {
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].protocol, "TVT");
         assert_eq!(devs[0].ip, "240.0.31.0".parse::<IpAddr>().unwrap());
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].device_type, "IPC");
         assert_eq!(devs[0].serial, "Virtual-1234");
     }

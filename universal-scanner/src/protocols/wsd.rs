@@ -108,6 +108,7 @@ impl ScanEngine for Wsd {
             return Vec::new();
         }
         vec![Device {
+            mac: String::new(),
             protocol: "WSDiscovery".into(),
             version: 0,
             ip: from.ip(),

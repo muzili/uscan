@@ -205,6 +205,7 @@ pub fn report_addresses(
     addrs: &[IpAddr],
     device_type: &str,
     serial: &str,
+    mac: &str,
     cfg: &crate::Config,
 ) -> Vec<crate::devices::Device> {
     use crate::iface::is_autoconf; // 接受 IpAddr，覆盖 v4 169.254/16 与 v6 fe80::/10
@@ -218,6 +219,7 @@ pub fn report_addresses(
         protocol: protocol.into(),
         version,
         ip,
+        mac: mac.to_string(),
         device_type: device_type.into(),
         serial: serial.into(),
     };

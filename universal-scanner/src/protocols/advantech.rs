@@ -99,6 +99,7 @@ impl ScanEngine for Advantech {
             "Unknown".to_string()
         };
         vec![Device {
+            mac: serial.clone(),
             protocol: "Advantech".into(),
             version: 1,
             ip: from.ip(),
@@ -158,6 +159,7 @@ mod tests {
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip, "240.0.25.0".parse::<IpAddr>().unwrap());
         assert_eq!(devs[0].device_type, "ABCD");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 
@@ -170,6 +172,7 @@ mod tests {
         let devs = Advantech::default().parse(from, &f);
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].device_type, "Unknown");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 
@@ -190,6 +193,7 @@ mod tests {
         assert_eq!(devs[0].version, 1);
         assert_eq!(devs[0].ip.to_string(), "240.0.25.0");
         assert_eq!(devs[0].device_type, "Virtual device\0");
+        assert_eq!(devs[0].mac, "00:11:22:33:44:55");
         assert_eq!(devs[0].serial, "00:11:22:33:44:55");
     }
 }

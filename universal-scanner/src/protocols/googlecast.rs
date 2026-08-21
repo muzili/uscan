@@ -63,6 +63,7 @@ pub fn googlecast_convert(answers: &[MdnsAnswer]) -> Vec<Device> {
     let mut out = Vec::new();
     if let Some(ip) = ipv4 {
         out.push(Device {
+            mac: String::new(),
             protocol: "Google".into(),
             version: 1,
             ip,
@@ -72,6 +73,7 @@ pub fn googlecast_convert(answers: &[MdnsAnswer]) -> Vec<Device> {
     }
     if let Some(ip) = ipv6 {
         out.push(Device {
+            mac: String::new(),
             protocol: "Google".into(),
             version: 1,
             ip,

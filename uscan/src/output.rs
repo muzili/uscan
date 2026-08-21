@@ -1,8 +1,9 @@
 //! 输出渲染器：table/csv/json/tsv + 批量（T53）。
 //!
-//! - CSV/TSV：表头恒为 `protocol,version,ip,type,serial`（version 恒含，对齐 C# 隐藏列导出）。
-//! - JSON：JSON Lines，每行固定字段 protocol/version/ip/type/serial。
-//! - Table：列 Protocol | (Version) | IP | Type | Serial；Version 默认隐藏，
+//! - CSV/TSV：表头恒为 `protocol,version,ip,mac,type,serial`（version 恒含，对齐 C# 隐藏列导出；
+//!   mac 列为 Rust 版新增，C# 表头无此列）。
+//! - JSON：JSON Lines，每行固定字段 protocol/version/ip/mac/type/serial。
+//! - Table：列 Protocol | (Version) | IP | MAC | Type | Serial；Version 默认隐藏，
 //!   --show-version 显示；Protocol 按引擎 color 着色（owo-colors），--no-color/NO_COLOR 禁用。
 //! - --batch：streaming 阶段只喂 DeviceTable，结束时按发现顺序一次性输出全部行。
 
@@ -12,8 +13,8 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use universal_scanner::{Device, DeviceTable};
 
-pub const CSV_HEADER: &str = "protocol,version,ip,type,serial";
-pub const TSV_HEADER: &str = "protocol\tversion\tip\ttype\tserial";
+pub const CSV_HEADER: &str = "protocol,version,ip,mac,type,serial";
+pub const TSV_HEADER: &str = "protocol\tversion\tip\tmac\ttype\tserial";
 
 /// 表头（仅 CSV/TSV 有；JSON Lines / Table 无）。
 pub fn header(format: OutputFormat) -> Option<String> {
@@ -55,10 +56,11 @@ fn render_csv(d: &Device) -> String {
     // C# exportAsCSV：每字段双引号包裹，内部 `"` 翻倍（UniversalScanner.cs）
     let q = |f: &str| format!("\"{}\"", f.replace('"', "\"\""));
     format!(
-        "{},{},{},{},{}",
+        "{},{},{},{},{},{}",
         q(&d.protocol),
         q(&d.version.to_string()),
         q(&d.ip.to_string()),
+        q(&d.mac),
         q(&d.device_type),
         q(&d.serial)
     )
@@ -66,8 +68,8 @@ fn render_csv(d: &Device) -> String {
 
 fn render_tsv(d: &Device) -> String {
     format!(
-        "{}\t{}\t{}\t{}\t{}",
-        d.protocol, d.version, d.ip, d.device_type, d.serial
+        "{}\t{}\t{}\t{}\t{}\t{}",
+        d.protocol, d.version, d.ip, d.mac, d.device_type, d.serial
     )
 }
 
@@ -76,6 +78,7 @@ fn render_json(d: &Device) -> String {
         "protocol": d.protocol,
         "version": d.version,
         "ip": d.ip.to_string(),
+        "mac": d.mac,
         "type": d.device_type,
         "serial": d.serial,
     })
@@ -93,6 +96,7 @@ fn render_table(d: &Device, show_version: bool, color: bool) -> String {
             proto,
             d.version.to_string(),
             d.ip.to_string(),
+            d.mac.clone(),
             d.device_type.clone(),
             d.serial.clone(),
         ]
@@ -100,6 +104,7 @@ fn render_table(d: &Device, show_version: bool, color: bool) -> String {
         vec![
             proto,
             d.ip.to_string(),
+            d.mac.clone(),
             d.device_type.clone(),
             d.serial.clone(),
         ]
@@ -143,11 +148,12 @@ mod tests {
     use super::*;
     use std::net::IpAddr;
 
-    fn dev(protocol: &str, version: u32, ip: &str, ty: &str, serial: &str) -> Device {
+    fn dev(protocol: &str, version: u32, ip: &str, mac: &str, ty: &str, serial: &str) -> Device {
         Device {
             protocol: protocol.into(),
             version,
             ip: ip.parse::<IpAddr>().unwrap(),
+            mac: mac.into(),
             device_type: ty.into(),
             serial: serial.into(),
         }
@@ -157,18 +163,18 @@ mod tests {
     fn csv_header_and_row() {
         assert_eq!(
             header(OutputFormat::Csv).unwrap(),
-            "protocol,version,ip,type,serial"
+            "protocol,version,ip,mac,type,serial"
         );
-        let d = dev("SSDP", 0, "1.2.3.4", "X", "SN");
+        let d = dev("SSDP", 0, "1.2.3.4", "AA:BB:CC:DD:EE:FF", "X", "SN");
         assert_eq!(
             render_row(&d, OutputFormat::Csv, false, false),
-            "\"SSDP\",\"0\",\"1.2.3.4\",\"X\",\"SN\""
+            "\"SSDP\",\"0\",\"1.2.3.4\",\"AA:BB:CC:DD:EE:FF\",\"X\",\"SN\""
         );
         // C# 转义：字段含 `,`/`"` 时引号内翻倍
-        let d = dev("SSDP", 0, "1.2.3.4", "Cam, \"pro\"", "SN,9");
+        let d = dev("SSDP", 0, "1.2.3.4", "", "Cam, \"pro\"", "SN,9");
         assert_eq!(
             render_row(&d, OutputFormat::Csv, false, false),
-            "\"SSDP\",\"0\",\"1.2.3.4\",\"Cam, \"\"pro\"\"\",\"SN,9\""
+            "\"SSDP\",\"0\",\"1.2.3.4\",\"\",\"Cam, \"\"pro\"\"\",\"SN,9\""
         );
     }
 
@@ -176,39 +182,44 @@ mod tests {
     fn tsv_header_and_row() {
         assert_eq!(
             header(OutputFormat::Tsv).unwrap(),
-            "protocol\tversion\tip\ttype\tserial"
+            "protocol\tversion\tip\tmac\ttype\tserial"
         );
-        let d = dev("SSDP", 0, "1.2.3.4", "X", "SN");
+        let d = dev("SSDP", 0, "1.2.3.4", "AA:BB:CC:DD:EE:FF", "X", "SN");
         assert_eq!(
             render_row(&d, OutputFormat::Tsv, false, false),
-            "SSDP\t0\t1.2.3.4\tX\tSN"
+            "SSDP\t0\t1.2.3.4\tAA:BB:CC:DD:EE:FF\tX\tSN"
         );
     }
 
     #[test]
     fn json_lines_fields() {
-        let d = dev("SSDP", 2, "1.2.3.4", "X", "SN");
+        let d = dev("SSDP", 2, "1.2.3.4", "AA:BB:CC:DD:EE:FF", "X", "SN");
         let line = render_row(&d, OutputFormat::Json, false, false);
         let v: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(v["protocol"], "SSDP");
         assert_eq!(v["version"], 2);
         assert_eq!(v["ip"], "1.2.3.4");
+        assert_eq!(v["mac"], "AA:BB:CC:DD:EE:FF");
         assert_eq!(v["type"], "X");
         assert_eq!(v["serial"], "SN");
     }
 
     #[test]
     fn table_hides_version_by_default() {
-        let d = dev("SSDP", 7, "1.2.3.4", "X", "SN");
-        let hidden = render_row(&d, OutputFormat::Table, false, false);
-        assert!(!hidden.contains("7"), "version must be hidden: {hidden}");
-        let shown = render_row(&d, OutputFormat::Table, true, false);
-        assert!(shown.contains("7"), "version must be shown: {shown}");
+        let d = dev("SSDP", 7, "1.2.3.4", "AA:BB:CC:DD:EE:FF", "X", "SN");
+        assert_eq!(
+            render_row(&d, OutputFormat::Table, false, false),
+            "SSDP | 1.2.3.4 | AA:BB:CC:DD:EE:FF | X | SN"
+        );
+        assert_eq!(
+            render_row(&d, OutputFormat::Table, true, false),
+            "SSDP | 7 | 1.2.3.4 | AA:BB:CC:DD:EE:FF | X | SN"
+        );
     }
 
     #[test]
     fn no_color_strips_ansi() {
-        let d = dev("SSDP", 0, "1.2.3.4", "X", "SN");
+        let d = dev("SSDP", 0, "1.2.3.4", "", "X", "SN");
         let colored = render_row(&d, OutputFormat::Table, false, true);
         assert!(
             colored.contains("\x1b["),
@@ -224,12 +235,19 @@ mod tests {
     #[test]
     fn batch_orders_by_discovery() {
         let mut t = DeviceTable::new(false);
-        t.add(dev("SSDP", 0, "1.2.3.4", "X", "A"), true, false);
-        t.add(dev("Lantronix", 0, "5.6.7.8", "Y", "B"), true, false);
+        t.add(
+            dev("SSDP", 0, "1.2.3.4", "AA:BB:CC:DD:EE:FF", "X", "A"),
+            true,
+            false,
+        );
+        t.add(dev("Lantronix", 0, "5.6.7.8", "", "Y", "B"), true, false);
         let lines = batch_lines(&t, OutputFormat::Csv, false, false);
         assert_eq!(lines.len(), 3); // header + 2
-        assert_eq!(lines[0], "protocol,version,ip,type,serial");
-        assert_eq!(lines[1], "\"SSDP\",\"0\",\"1.2.3.4\",\"X\",\"A\"");
-        assert_eq!(lines[2], "\"Lantronix\",\"0\",\"5.6.7.8\",\"Y\",\"B\"");
+        assert_eq!(lines[0], "protocol,version,ip,mac,type,serial");
+        assert_eq!(
+            lines[1],
+            "\"SSDP\",\"0\",\"1.2.3.4\",\"AA:BB:CC:DD:EE:FF\",\"X\",\"A\""
+        );
+        assert_eq!(lines[2], "\"Lantronix\",\"0\",\"5.6.7.8\",\"\",\"Y\",\"B\"");
     }
 }

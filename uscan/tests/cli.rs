@@ -96,7 +96,9 @@ fn scan_timeout_csv_exit_zero() {
         .timeout(Duration::from_secs(20))
         .assert()
         .success()
-        .stdout(predicates::str::contains("protocol,version,ip,type,serial"));
+        .stdout(predicates::str::contains(
+            "protocol,version,ip,mac,type,serial",
+        ));
 }
 
 #[test]
