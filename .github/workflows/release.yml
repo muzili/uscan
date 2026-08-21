@@ -1,0 +1,148 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Builds uscan for Linux x86_64 (native on the Ubuntu runner) and for
+# macOS arm64 / x86_64 (native on their respective runners), merges the two
+# macOS slices into a universal binary with lipo, and publishes a GitHub
+# Release from a v* tag.
+#
+# libpcap is the only native dependency (linked via the `pcap` crate):
+#   - Linux:  apt libpcap-dev (headers + .so + .pc file)
+#   - macOS:  ships with the OS; deliberately NOT installed via brew, so the
+#             released binary links /usr/lib/libpcap.tbd and runs on any Mac
+#             without Homebrew.
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install libpcap
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libpcap-dev pkg-config
+      - run: cargo test --workspace
+
+  build:
+    name: Build ${{ matrix.asset }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: uscan-linux-amd64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            asset: uscan-darwin-arm64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            asset: uscan-darwin-x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Install libpcap (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libpcap-dev pkg-config
+      - name: Build
+        run: cargo build --release --package uscan --target ${{ matrix.target }}
+      - name: Strip
+        run: strip target/${{ matrix.target }}/release/uscan
+      - name: Package
+        run: |
+          mkdir -p dist/${{ matrix.asset }}
+          cp target/${{ matrix.target }}/release/uscan dist/${{ matrix.asset }}/uscan
+          tar -czf ${{ matrix.asset }}.tar.gz -C dist ${{ matrix.asset }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}.tar.gz
+
+  universal:
+    name: Build macOS universal binary
+    needs: build
+    runs-on: macos-14
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: uscan-darwin-*
+          path: artifacts
+      - name: lipo
+        run: |
+          tar -xzf artifacts/uscan-darwin-arm64/uscan-darwin-arm64.tar.gz
+          tar -xzf artifacts/uscan-darwin-x86_64/uscan-darwin-x86_64.tar.gz
+          mkdir -p dist/uscan-darwin-universal
+          lipo -create \
+            uscan-darwin-arm64/uscan \
+            uscan-darwin-x86_64/uscan \
+            -output dist/uscan-darwin-universal/uscan
+          file dist/uscan-darwin-universal/uscan
+          tar -czf uscan-darwin-universal.tar.gz -C dist uscan-darwin-universal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uscan-darwin-universal
+          path: uscan-darwin-universal.tar.gz
+
+  release:
+    name: Create GitHub release
+    needs: [build, universal]
+    if: startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum */*.tar.gz > CHECKSUMS.txt
+          cat CHECKSUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            dist/*/*.tar.gz
+            dist/CHECKSUMS.txt
+          body: |
+            Prebuilt binaries for `uscan` (UniversalScanner, Rust port).
+
+            Install:
+
+            ```
+            tar -xzf uscan-<os>-<arch>.tar.gz
+            sudo install uscan-<os>-<arch>/uscan /usr/local/bin/uscan
+            ```
+
+            Assets:
+
+            | File | Platform |
+            |---|---|
+            | `uscan-linux-amd64.tar.gz` | Linux x86_64 (glibc) |
+            | `uscan-darwin-arm64.tar.gz` | macOS, Apple Silicon |
+            | `uscan-darwin-x86_64.tar.gz` | macOS, Intel |
+            | `uscan-darwin-universal.tar.gz` | macOS, both (lipo fat binary) |
+
+            The macOS binaries are not code-signed. If Gatekeeper blocks the
+            binary after download, run `xattr -d com.apple.quarantine uscan`
+            (or right-click the file and choose Open once).
+
+            Verify integrity against `CHECKSUMS.txt` (sha256).
