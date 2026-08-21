@@ -51,7 +51,9 @@ pub fn build_reply(
     target_mac: [u8; 6],
     target_ip: Ipv4Addr,
 ) -> [u8; 42] {
-    build(ARP_OP_REPLY, src_mac, sender_ip, target_mac, target_ip)
+    let mut f = build(ARP_OP_REPLY, src_mac, sender_ip, target_mac, target_ip);
+    f[..6].copy_from_slice(&target_mac); // 应答帧目的 = 询问者 MAC
+    f
 }
 
 pub fn parse(frame: &[u8]) -> Option<ArpFrame> {

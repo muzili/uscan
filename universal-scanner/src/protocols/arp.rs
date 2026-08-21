@@ -93,6 +93,10 @@ impl ScanEngine for Arp {
         if !ctx.config.arp_enabled {
             return Ok(Vec::new());
         }
+        // 重入保护：捕获线程只能经 ctx.cancel 终止，重复 listen 会泄漏整套线程
+        if !self.nics.lock().unwrap().is_empty() {
+            return Ok(Vec::new());
+        }
         let ifaces = iface::active_interfaces();
         let local_ips: Vec<Ipv4Addr> = ifaces.iter().flat_map(|i| i.ipv4_addrs()).collect();
         let names: Vec<String> = ifaces
@@ -107,14 +111,8 @@ impl ScanEngine for Arp {
         let reporter = ctx.reporter.clone();
         let handle = tokio::spawn(async move {
             while let Some(frame_bytes) = rx.recv().await {
-                for dev in arp_parse(&frame_bytes) {
-                    let is_local = match dev.ip {
-                        IpAddr::V4(v4) => local_ips.contains(&v4),
-                        IpAddr::V6(_) => false,
-                    };
-                    if !is_local {
-                        let _ = reporter.send(dev);
-                    }
+                for dev in filter_local(arp_parse(&frame_bytes), &local_ips) {
+                    let _ = reporter.send(dev);
                 }
             }
         });
@@ -122,22 +120,33 @@ impl ScanEngine for Arp {
     }
 
     fn scan(&self, ctx: &EngineContext) -> crate::Result<()> {
-        let nics = self.nics.lock().unwrap();
+        if !ctx.config.arp_enabled {
+            return Ok(());
+        }
+        // 克隆通道句柄，避免整个 sweep 期间持有锁（通道发送端可克隆）
+        let nics = self.nics.lock().unwrap().clone();
+        if nics.is_empty() {
+            return Ok(()); // 未 listen 或全部网卡降级
+        }
         for ifc in iface::active_interfaces() {
+            let mac = match iface::mac_of(&ifc.name) {
+                Some(m) => m,
+                None => {
+                    ctx.logger.warn(
+                        ctx.task_id,
+                        &format!("ARP sweep skipped {}: no MAC", ifc.name),
+                    );
+                    continue;
+                }
+            };
+            let mut bcast_ip = None; // 每接口首个私有 IP 用于广播
             for ip in ifc.ipv4_addrs() {
                 if !iface::is_private(IpAddr::V4(ip)) {
                     continue; // 仅私有接口（含 169.254/16）
                 }
-                let mac = match iface::mac_of(&ifc.name) {
-                    Some(m) => m,
-                    None => {
-                        ctx.logger.warn(
-                            ctx.task_id,
-                            &format!("ARP sweep skipped {}: no MAC", ifc.name),
-                        );
-                        continue;
-                    }
-                };
+                if bcast_ip.is_none() {
+                    bcast_ip = Some(ip);
+                }
                 let mask = iface::mask_of(ip);
                 for host in sweep_plan(ip, mask) {
                     send_to_nic(
@@ -147,6 +156,9 @@ impl ScanEngine for Arp {
                         ctx,
                     );
                 }
+            }
+            // 每接口再发 1 个广播（C# spec §3.6 ②）
+            if let Some(ip) = bcast_ip {
                 let bcast = Ipv4Addr::new(255, 255, 255, 255);
                 send_to_nic(
                     &nics,

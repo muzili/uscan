@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 /// 一个网卡的 ARP 捕获 + 注入通道。所有 pcap 操作都在专用 std::thread 内完成
 /// （tokio worker 上阻塞会饿死运行时，spec §3.6）。
+#[derive(Clone)]
 pub struct ArpNic {
     pub name: String,
     /// 主动发帧通道（scan sweep 用）
