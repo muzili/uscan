@@ -10,9 +10,13 @@ permissions:
   contents: write
 
 # Builds uscan for Linux x86_64 (native on the Ubuntu runner) and for
-# macOS arm64 / x86_64 (native on their respective runners), merges the two
-# macOS slices into a universal binary with lipo, and publishes a GitHub
-# Release from a v* tag.
+# macOS arm64 / x86_64 (both on Apple Silicon runners; x86_64 is
+# cross-compiled, which Apple's toolchain supports natively for the same
+# OS), merges the two macOS slices into a universal binary with lipo, and
+# publishes a GitHub Release from a v* tag.
+#
+# Note: x86_64-apple-darwin is NOT built on macos-13 (Intel) — that runner
+# pool is scarce and jobs can sit queued for a very long time.
 #
 # libpcap is the only native dependency (linked via the `pcap` crate):
 #   - Linux:  apt libpcap-dev (headers + .so + .pc file)
@@ -47,7 +51,7 @@ jobs:
           - os: macos-14
             target: aarch64-apple-darwin
             asset: uscan-darwin-arm64
-          - os: macos-13
+          - os: macos-14
             target: x86_64-apple-darwin
             asset: uscan-darwin-x86_64
     steps:
