@@ -356,7 +356,7 @@ mod tests {
         }
         // 期望值：对照 C# Arecont.mdnsReplyReciever 规则手工核定后填入
         //（PTR "ARECONT AV 1000-AV334455.*"、MAC 变量含 '/' → model 无条件 "AV"+其后、
-        // method1 serial "AV334455" → 替换 "001A0734455"、A 240.0.16.0）
+        // method1 serial "AV334455" → 替换 "001A07334455"、A 240.0.16.0）
         assert!(!devs.is_empty(), "Arecont fixture should yield >=1 device");
         // TODO(T50): 填入完整 (protocol, version, ip, type, serial) 断言（源地址 240.0.0.0，task_id 0）
     }
