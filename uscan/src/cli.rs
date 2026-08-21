@@ -38,6 +38,8 @@ pub enum Cmd {
     ListProtocols,
     /// 下载 IEEE OUI 厂家数据库到用户缓存（ARP 输出的厂家标注数据源）
     UpdateOui,
+    /// 给 TVT 设备设置 IP（L2 set-IP 组播报文，MHED type 3）
+    TvtSet(TvtSetArgs),
 }
 
 /// 扫描参数（含 10 对对称 flag，CLI > TOML > 默认值，见 config.rs）。
@@ -111,6 +113,38 @@ pub struct ScanArgs {
     pub arp: bool,
     #[arg(long)]
     pub no_arp: bool,
+}
+
+/// tvt-set 参数（L2 set-IP；报文布局见 `universal_scanner::tvt_provision`）。
+#[derive(Args, Debug, Clone)]
+pub struct TvtSetArgs {
+    /// 目标设备 MAC（XX:XX:XX:XX:XX:XX）
+    #[arg(long)]
+    pub mac: String,
+    /// 新静态 IP（--dhcp 时设备忽略）
+    #[arg(long)]
+    pub ip: std::net::Ipv4Addr,
+    /// 子网掩码（默认 255.255.255.0）
+    #[arg(long, default_value = "255.255.255.0")]
+    pub mask: std::net::Ipv4Addr,
+    /// 网关（默认 0.0.0.0）
+    #[arg(long, default_value = "0.0.0.0")]
+    pub gateway: std::net::Ipv4Addr,
+    /// 管理员密码（包内 base64，≤21 字节；默认空）
+    #[arg(long, default_value = "")]
+    pub password: String,
+    /// 启用 DHCP（设备转 DHCP，ip/mask/gateway 不生效）
+    #[arg(long)]
+    pub dhcp: bool,
+    /// 出接口 IP（IP_MULTICAST_IF；缺省走系统路由）
+    #[arg(long)]
+    pub interface: Option<std::net::Ipv4Addr>,
+    /// MHED 协议版本（默认 65544 = 0x00010008，即实机应答携带的版本）
+    #[arg(long, default_value_t = 65544)]
+    pub version: u32,
+    /// 只打印报文 hex（密码区清零），不发送
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]

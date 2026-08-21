@@ -77,7 +77,7 @@ impl Scanner {
         ))
     }
 
-    /// 注册表按 name（小写）过滤；拼错 → Err 列可选值。T43 后全量 27 项。
+    /// 注册表按 name（小写）过滤；拼错 → Err 列可选值。当前全量 28 项。
     fn select_entries(filter: Option<&[String]>) -> crate::Result<Vec<(u16, Arc<dyn ScanEngine>)>> {
         let all: Vec<(u16, Arc<dyn ScanEngine>)> = protocols::registry();
         match filter {
@@ -229,9 +229,9 @@ mod tests {
     }
 
     #[test]
-    fn no_filter_gives_all_27() {
-        // protocols=None → 27 个引擎（26 C# + ARP）
+    fn no_filter_gives_all_engines() {
+        // protocols=None → 全部 28 个引擎（26 C# + ARP + TVT）
         let (s, _rx) = Scanner::new(Config::default(), None, None).unwrap();
-        assert_eq!(s.len(), 27);
+        assert_eq!(s.len(), 28);
     }
 }

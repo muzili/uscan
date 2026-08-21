@@ -22,6 +22,7 @@ pub mod nicevision;
 pub mod panasonic;
 pub mod sony;
 pub mod ssdp;
+pub mod tvt;
 pub mod ubiquiti;
 pub mod vision360;
 pub mod vivotek;
@@ -69,6 +70,7 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
         ),
         (29, || std::sync::Arc::new(mssql::Mssql::default())),
         (30, || std::sync::Arc::new(arp::Arp::default())),
+        (31, || std::sync::Arc::new(tvt::Tvt::default())),
     ];
     builders.iter().map(|(id, b)| (*id, b())).collect()
 }
@@ -77,11 +79,11 @@ pub fn registry() -> Vec<(u16, std::sync::Arc<dyn crate::engine::ScanEngine>)> {
 mod tests {
     use super::*;
 
-    const EXPECTED_IDS: [u16; 27] = [
+    const EXPECTED_IDS: [u16; 28] = [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 23, 24, 25, 26, 28,
-        29, 30,
+        29, 30, 31,
     ];
-    const EXPECTED_NAMES: [&str; 27] = [
+    const EXPECTED_NAMES: [&str; 28] = [
         "SSDP",
         "WSDiscovery",
         "Dahua",
@@ -109,10 +111,10 @@ mod tests {
         "CyberPower",
         "MSSQL",
         "ARP",
+        "TVT",
     ];
 
-    /// T43 收尾（恢复 T17 放宽的完整断言）：名称列表 + ID 集合全量比对（按 ID 升序）。
-    /// 27 引擎全量比对（含 ARP id 30，T44–T47 添加）；名称列表 + ID 集合按 ID 升序。
+    /// 28 引擎全量比对（含 ARP id 30 与 TVT id 31）；名称列表 + ID 集合按 ID 升序。
     #[test]
     fn registry_complete() {
         let reg = registry();

@@ -385,6 +385,17 @@ fn expected_tuples() -> BTreeMap<Key, Vec<Tuple>> {
             "00:11:22:33:44:55".into(),
         )],
     );
+    // TVT 引擎（源 240.0.31.0）：脱敏合成 fixture（逆向自实机抓包）
+    m.insert(
+        ("TVT".into(), "TVT.selftest".into()),
+        vec![(
+            "TVT".into(),
+            1,
+            "240.0.31.0".into(),
+            "IPC".into(),
+            "Virtual-1234".into(),
+        )],
+    );
     m
 }
 
@@ -392,7 +403,7 @@ fn expected_tuples() -> BTreeMap<Key, Vec<Tuple>> {
 fn selftest_all_fixtures() {
     let expected = expected_tuples();
     let all = universal_scanner::selftest::replay_all().unwrap();
-    assert_eq!(all.len(), 31, "replays() must list all 31 fixtures");
+    assert_eq!(all.len(), 32, "replays() must list all 32 fixtures");
 
     // 双向覆盖（无兜底）：replays() 的 (engine_name, fixture) 键集 == expected 的键集。
     let replay_keys: BTreeSet<(String, String)> = all

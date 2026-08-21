@@ -1,1 +1,3 @@
 /target
+# 实机抓包（含真实 MAC/LAN 信息，不入库；仓库内 fixture 为脱敏版）
+tvt.pcapng

@@ -20,6 +20,7 @@ async fn main() {
         }) => commands::run_selftest2pcap(&in_file, &out_file, dest_port),
         Some(cli::Cmd::ListProtocols) => commands::run_list_protocols(),
         Some(cli::Cmd::UpdateOui) => commands::run_update_oui(),
+        Some(cli::Cmd::TvtSet(args)) => commands::run_tvt_set(&args),
     };
     std::process::exit(code);
 }

@@ -97,7 +97,7 @@ pub fn run_selftest2pcap(in_file: &Path, out_file: &Path, dest_port: u16) -> i32
     }
 }
 
-/// 列出 27 个协议引擎（registry）+ 末尾一行 mDNS broker 说明。
+/// 列出全部协议引擎（registry）+ 末尾一行 mDNS broker 说明。
 pub fn run_list_protocols() -> i32 {
     let registry = universal_scanner::protocols::registry();
     println!(
@@ -266,6 +266,11 @@ fn proto_meta(id: u16) -> Meta {
             listen: "pcap ARP (L2)",
             desc: "ARP/GARP host discovery (L2 capture)",
         },
+        31 => Meta {
+            port: "23456",
+            listen: "multicast 234.55.55.55/.56 :23456",
+            desc: "TVT camera discovery (MHED, reverse-engineered)",
+        },
         _ => Meta {
             port: "—",
             listen: "—",
@@ -279,6 +284,57 @@ pub fn run_update_oui() -> i32 {
     match universal_scanner::oui::download() {
         Ok(dest) => {
             println!("OUI database saved to {}", dest.display());
+            0
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            1
+        }
+    }
+}
+
+/// TVT L2 set-IP（MHED type 3）：构造 + 组播发送（3 次 @100ms）。
+/// exit 0 = 已发送（或 --dry-run 打印完成）；1 = 参数/构造/发送错误（消息到 stderr）。
+pub fn run_tvt_set(args: &crate::cli::TvtSetArgs) -> i32 {
+    use universal_scanner::tvt_provision::{self, SetIpRequest};
+
+    let mac = match tvt_provision::parse_mac(&args.mac) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 1;
+        }
+    };
+    let req = SetIpRequest {
+        mac,
+        password: args.password.clone(),
+        new_ip: args.ip,
+        subnet_mask: args.mask,
+        gateway: args.gateway,
+        dhcp: args.dhcp,
+        protocol_version: args.version,
+    };
+    let packet = match tvt_provision::build_set_ip_request(&req) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 1;
+        }
+    };
+    if args.dry_run {
+        print!("{}", tvt_provision::hex_dump(&packet));
+        return 0;
+    }
+    match tvt_provision::send_set_ip(&req, args.interface) {
+        Ok(()) => {
+            println!(
+                "sent {}B TVT set-IP packet to {}:{} (mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}, dhcp={})",
+                tvt_provision::PACKET_SIZE,
+                tvt_provision::SET_IP_GROUP,
+                tvt_provision::SET_IP_PORT,
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
+                req.dhcp
+            );
             0
         }
         Err(e) => {

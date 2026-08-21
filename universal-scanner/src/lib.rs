@@ -14,6 +14,7 @@ pub mod ports;
 pub mod protocols;
 pub mod scanner;
 pub mod selftest;
+pub mod tvt_provision;
 
 pub use config::Config;
 pub use devices::{Device, DeviceTable};

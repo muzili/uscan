@@ -101,6 +101,7 @@ pub fn replays() -> Vec<Replay> {
         r("MSSQL", "MSSQL.selftest", 29, 0),
         // 30 ARP
         r("ARP", "Arp.selftest", 30, 0),
+        r("TVT", "TVT.selftest", 31, 0),
     ]
 }
 
@@ -136,6 +137,7 @@ fn engine_for(re: &Replay) -> crate::Result<Arc<dyn ScanEngine>> {
         "Eden" => Arc::new(protocols::eden::Eden::default()),
         "CyberPower" => Arc::new(protocols::cyberpower::CyberPower::default()),
         "MSSQL" => Arc::new(protocols::mssql::Mssql::default()),
+        "TVT" => Arc::new(protocols::tvt::Tvt::default()),
         other => {
             return Err(crate::errors::Error::Config(format!(
                 "unknown selftest engine: {other}"

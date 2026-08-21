@@ -4,7 +4,7 @@
 C#/.NET 4.5 WinForms，约 8300 行）。本仓库为库 crate（`universal-scanner`）+ CLI（`uscan`），
 **不做 UI**。
 
-- **27 个协议引擎** = 26 个 C# 引擎复刻 + 新增 **ARP/GARP** L2 发现引擎（原项目没有）；
+- **28 个协议引擎** = 26 个 C# 引擎复刻 + 新增 **ARP/GARP** L2 与 **TVT**（MHED 组播协议，逆向自实机抓包）发现引擎；
   其中 SSDP / WSDiscovery / Hikvision 为组播类，Axis / Google / Arecont 为 mDNS broker 消费者，
   其余为广播类。
 - **mDNS broker**：单一 DNS-wire 解析 + 域名注册表，供 3 个 mDNS 消费者共享（端口 5353）。
@@ -69,6 +69,12 @@ uscan selftest2pcap in.selftest out.pcap --dest-port 1900
 
 # 列出全部协议引擎 + mDNS broker 行
 uscan list-protocols
+
+# TVT 设备设置 IP（L2 set-IP 组播报文，MHED type 3；协议逆向自实机，参考 tvt-iptool-linux）
+uscan tvt-set --mac 00:18:ae:9b:e2:80 --ip 192.168.0.90 --mask 255.255.255.0 --gateway 192.168.0.1
+uscan tvt-set --mac 00:18:ae:9b:e2:80 --ip 192.168.0.90 --dhcp        # 切回 DHCP
+uscan tvt-set --mac 00:18:ae:9b:e2:80 --ip 192.168.0.90 --dry-run     # 只打印报文，不发送
+# 改后验证：uscan scan --protocols TVT（同一设备 serial 应以新 IP 再现）
 ```
 
 **输出格式**（`--format`）：`table`（默认）/ `csv` / `json`（JSON Lines）/ `tsv`。
@@ -104,7 +110,7 @@ arp_enabled              = true   # ARP/GARP L2 发现（Rust 新增）
 
 ## 4. 测试 Fixtures
 
-`universal-scanner/tests/fixtures/` 下 **31 个 `.selftest` 报文**（覆盖全部 27 个引擎，部分引擎
+`universal-scanner/tests/fixtures/` 下 **32 个 `.selftest` 报文**（覆盖全部 28 个引擎，部分引擎
 双 fixture），多数来自 C# 仓库真实报文；`Arp.selftest` 为**合成** fixture（42 字节 GARP 帧，
 无 C# 对应物，spec §3.6）。每个引擎的源地址合成规则为 `240.0.<id>.<minor>`（id = 注册表 ID）。
 
@@ -156,7 +162,7 @@ API：`Scanner::new(Config, Option<&[protocol]>, Option<pcap_out>) -> (Scanner, 
 
 UniversalScanner (Rust) is a behavioral re-implementation of the C# UniversalScanner network
 device-discovery tool, split into a library crate (`universal-scanner`) and a CLI (`uscan`), with
-no UI. It ships **27 protocol engines** (26 faithful C# ports + a new ARP/GARP L2 engine) plus a
+no UI. It ships **28 protocol engines** (26 faithful C# ports + new ARP/GARP L2 and TVT engines) plus a
 shared mDNS broker, licensed LGPL-3.0.
 
 Build with `cargo build --release` (needs `libpcap-dev` + `pkg-config` on Linux; Rust ≥ 1.75).

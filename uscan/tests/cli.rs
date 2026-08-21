@@ -31,7 +31,7 @@ fn write_toml(contents: &str) -> tempfile::NamedTempFile {
 }
 
 #[test]
-fn list_protocols_all_27() {
+fn list_protocols_all_engines() {
     let assert = uscan().arg("list-protocols").assert().success();
     let out = assert.get_output();
     let stdout = String::from_utf8(out.stdout.clone()).unwrap();
@@ -66,12 +66,12 @@ fn list_protocols_all_27() {
         assert!(stdout.contains(name), "missing protocol name: {name}");
     }
     assert!(stdout.contains("mDNS broker"), "missing mDNS broker line");
-    // 27 个引擎行（Dahua 双引擎 → 27 行；末位 broker 说明行不计）
+    // 28 个引擎行（Dahua 双引擎；末位 broker 说明行不计）
     let rows = stdout
         .lines()
         .filter(|l| l.chars().next().is_some_and(|c| c.is_ascii_digit()))
         .count();
-    assert_eq!(rows, 27, "expected 27 engine rows, got {rows}:\n{stdout}");
+    assert_eq!(rows, 28, "expected 28 engine rows, got {rows}:\n{stdout}");
 }
 
 #[test]
@@ -106,6 +106,59 @@ fn scan_unknown_protocol_errors() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("unknown protocol"));
+}
+
+#[test]
+fn tvt_set_dry_run_prints_hex_with_password_redacted() {
+    uscan()
+        .args([
+            "tvt-set",
+            "--mac",
+            "00:11:22:33:44:55",
+            "--ip",
+            "192.168.0.90",
+            "--password",
+            "admin",
+            "--dry-run",
+        ])
+        .assert()
+        .success()
+        .stdout(
+            // 首行固定：MHED + 版本 0x00010008 (LE32) + 类型 0x03 (LE32)
+            predicates::str::contains("0000  4d 48 45 44 08 00 01 00 03 00 00 00")
+                .and(predicates::str::contains("00 11 22 33 44 55"))
+                .and(predicates::str::contains("c0 a8 00 5a"))
+                .and(predicates::str::contains("YWRtaW4=").not()),
+        );
+}
+
+#[test]
+fn tvt_set_bad_mac_errors() {
+    uscan()
+        .args(["tvt-set", "--mac", "nope", "--ip", "192.168.0.90"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicates::str::contains("MAC"));
+}
+
+#[test]
+fn tvt_set_password_too_long_errors() {
+    let args: Vec<String> = vec![
+        "tvt-set".into(),
+        "--mac".into(),
+        "00:11:22:33:44:55".into(),
+        "--ip".into(),
+        "192.168.0.90".into(),
+        "--password".into(),
+        "x".repeat(22),
+    ];
+    uscan()
+        .args(&args)
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicates::str::contains("password"));
 }
 
 #[test]
