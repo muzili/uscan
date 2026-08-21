@@ -113,7 +113,7 @@ impl ScanEngine for Arp {
             while let Some(frame_bytes) = rx.recv().await {
                 for mut dev in filter_local(arp_parse(&frame_bytes), &local_ips) {
                     // OUI 厂家标注：追加到 serial（"aa:bb:.. (Vendor)"）；
-                    // 无系统 oui.txt（ieee-data 包）时保持原样
+                    // 数据源 系统 ieee-data → update-oui 缓存 → 内置压缩库（恒可用）
                     if dev.protocol == "ARP" {
                         if let Some(p) = frame::parse(&frame_bytes) {
                             if let Some(vendor) = crate::oui::lookup(p.src_mac) {

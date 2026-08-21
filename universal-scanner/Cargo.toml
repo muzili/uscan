@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 ureq = { version = "2", default-features = false, features = ["tls"] }
+flate2 = "1"
 
 [dev-dependencies]
 tempfile = "3"

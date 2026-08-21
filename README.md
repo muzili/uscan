@@ -20,9 +20,22 @@ cargo build --release
 ```
 
 **系统依赖：** Linux 需 **libpcap**（`libpcap-dev` + `pkg-config`）；macOS 自带 libpcap。
-可选：ARP 设备的 serial 会追加 MAC 厂家标注（`84:7b:57:xx:xx:xx (Intel Corporate)`），
-数据源任选其一：系统 `ieee-data` 包，或 `uscan update-oui` 从 IEEE 官网下载到
-`~/.cache/uscan/oui.txt`；两者都缺时不追加，行为不变。
+ARP 设备的 serial 会追加 MAC 厂家标注（`84:7b:57:xx:xx:xx (Intel Corporate)`）。
+OUI 数据源优先级：系统 `ieee-data` 包 → `uscan update-oui` 下载的缓存
+（`~/.cache/uscan/oui.txt`，IEEE 官方源）→ **内置压缩数据库**（`oui_data/compact.txt.gz`，
+约 400KB、39,982 条，开箱即用）。重新生成内置库：
+
+```bash
+python3 - <<'PY'
+import gzip, re, urllib.request
+req = urllib.request.Request("https://standards-oui.ieee.org/oui/oui.txt",
+                             headers={"User-Agent": "Mozilla/5.0"})
+out = [f"{m.group(1)}\t{m.group(2)}"
+       for m in map(lambda l: re.match(r'^([0-9A-F]{6})\s+\(base 16\)\s*(.+?)\s*$', l.decode()),
+                    urllib.request.urlopen(req))]
+open("universal-scanner/src/oui_data/compact.txt.gz", "wb").write(gzip.compress("\n".join(out).encode(), 9))
+PY
+```
 Rust ≥ 1.75（edition 2021，MSRV 1.75）。
 
 ```bash

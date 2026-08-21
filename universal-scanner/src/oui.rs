@@ -1,12 +1,14 @@
-//! MAC OUI（IEEE 厂家）查询：懒加载 oui.txt。
+//! MAC OUI（IEEE 厂家）查询。
 //!
-//! 探测顺序：系统安装的 `ieee-data` 包路径 → 用户缓存（`uscan update-oui` 下载）。
-//! 都不存在时查询返回 None（ARP 输出不追加厂家，其余行为不变）。
+//! 数据源优先级：系统 `ieee-data` 包 → 用户缓存（`uscan update-oui` 下载）
+//! → **内置压缩数据库**（`oui_data/compact.txt.gz`，随源码提交，恒可用）。
+//! 未命中 OUI 前缀时返回 None。
 
 use std::collections::HashMap;
+use std::io::Read;
 use std::sync::OnceLock;
 
-/// IEEE 官方 base-16 OUI 数据库（`uscan update-oui` 的下载源）。
+/// IEEE 官方 base-16 OUI 数据库（`uscan update-oui` 的下载源，也是内置库的生成源）。
 pub const OUI_URL: &str = "https://standards-oui.ieee.org/oui/oui.txt";
 
 /// 常见 oui.txt 安装位置（按序探测第一个存在的）。
@@ -15,6 +17,9 @@ const OUI_PATHS: [&str; 3] = [
     "/var/lib/ieee-data/oui.txt",
     "/usr/share/ieee-data/oui.txt",
 ];
+
+/// 内置精简库（`HEX\tVendor` 行，gzip；生成方式见 README「OUI 数据库」节）。
+static EMBEDDED: &[u8] = include_bytes!("oui_data/compact.txt.gz");
 
 type OuiMap = HashMap<[u8; 3], String>;
 
@@ -32,13 +37,25 @@ fn load() -> Option<OuiMap> {
     if let Some(c) = cache_path() {
         candidates.push(c);
     }
-    let text = candidates
+    // 系统/缓存数据（可能更新）优先；全缺时回退内置压缩库
+    if let Some(text) = candidates
         .iter()
-        .find_map(|p| std::fs::read_to_string(p).ok())?;
-    parse_oui_file(text)
+        .find_map(|p| std::fs::read_to_string(p).ok())
+    {
+        return parse_oui_file(text);
+    }
+    load_embedded()
 }
 
-/// 解析 oui.txt：形如 `847B57     (base 16)\tTP-Link Systems Inc.` 的行
+/// 解压并解析内置库。
+fn load_embedded() -> Option<OuiMap> {
+    let mut gz = flate2::read::GzDecoder::new(EMBEDDED);
+    let mut text = String::new();
+    gz.read_to_string(&mut text).ok()?;
+    parse_compact(&text)
+}
+
+/// 解析官方 oui.txt：形如 `847B57     (base 16)\tIntel Corporate` 的行
 /// （仅取 base-16 / 24 位 OUI 行；MA-M/MA-S 28/36 位行忽略）。
 fn parse_oui_file(text: String) -> Option<OuiMap> {
     const MARKER: &str = "(base 16)";
@@ -73,7 +90,31 @@ fn parse_oui_file(text: String) -> Option<OuiMap> {
     }
 }
 
-/// 查 MAC 前 3 字节对应的厂家；无数据库或未命中 → None。
+/// 解析内置精简格式：`847B57\tIntel Corporate` 行。
+fn parse_compact(text: &str) -> Option<OuiMap> {
+    let mut map = OuiMap::new();
+    for line in text.lines() {
+        let Some((hex, vendor)) = line.split_once('\t') else {
+            continue;
+        };
+        if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            continue;
+        }
+        let oui = [
+            u8::from_str_radix(&hex[0..2], 16).ok()?,
+            u8::from_str_radix(&hex[2..4], 16).ok()?,
+            u8::from_str_radix(&hex[4..6], 16).ok()?,
+        ];
+        map.insert(oui, vendor.trim().to_string());
+    }
+    if map.is_empty() {
+        None
+    } else {
+        Some(map)
+    }
+}
+
+/// 查 MAC 前 3 字节对应的厂家；未命中 → None（内置库恒存在，不会因缺数据失败）。
 pub fn lookup(mac: [u8; 6]) -> Option<String> {
     static MAP: OnceLock<Option<OuiMap>> = OnceLock::new();
     let map = MAP.get_or_init(load).as_ref()?;
@@ -139,14 +180,32 @@ mod tests {
     }
 
     #[test]
+    fn parses_compact_lines() {
+        let map = parse_compact("847B57\tIntel Corporate\n3CEFA5\tCLOUD NETWORK\nbad\n0011\tX\n")
+            .unwrap();
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get(&[0x84, 0x7b, 0x57]).unwrap(), "Intel Corporate");
+    }
+
+    #[test]
+    fn embedded_db_loads_and_hits() {
+        // 内置库恒可用：条目量级 + 已知 OUI 命中
+        let map = load_embedded().expect("embedded OUI db must parse");
+        assert!(map.len() > 30_000, "embedded db too small: {}", map.len());
+        assert_eq!(map.get(&[0x84, 0x7b, 0x57]).unwrap(), "Intel Corporate");
+        assert!(map.contains_key(&[0x3c, 0xef, 0xa5]));
+    }
+
+    #[test]
     fn empty_or_invalid_file_is_none() {
         assert!(parse_oui_file(String::new()).is_none());
         assert!(parse_oui_file("no markers here\n".to_string()).is_none());
+        assert!(parse_compact("").is_none());
     }
 
     #[test]
     fn cache_path_under_xdg() {
-        // 仅验证形状：以 / 结尾的 oui.txt
+        // 仅验证形状：以 uscan/oui.txt 结尾
         if let Some(p) = cache_path() {
             assert!(p.ends_with("uscan/oui.txt"));
         }
