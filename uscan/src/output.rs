@@ -52,9 +52,15 @@ pub fn batch_lines(
 }
 
 fn render_csv(d: &Device) -> String {
+    // C# exportAsCSV：每字段双引号包裹，内部 `"` 翻倍（UniversalScanner.cs）
+    let q = |f: &str| format!("\"{}\"", f.replace('"', "\"\""));
     format!(
         "{},{},{},{},{}",
-        d.protocol, d.version, d.ip, d.device_type, d.serial
+        q(&d.protocol),
+        q(&d.version.to_string()),
+        q(&d.ip.to_string()),
+        q(&d.device_type),
+        q(&d.serial)
     )
 }
 
@@ -156,7 +162,13 @@ mod tests {
         let d = dev("SSDP", 0, "1.2.3.4", "X", "SN");
         assert_eq!(
             render_row(&d, OutputFormat::Csv, false, false),
-            "SSDP,0,1.2.3.4,X,SN"
+            "\"SSDP\",\"0\",\"1.2.3.4\",\"X\",\"SN\""
+        );
+        // C# 转义：字段含 `,`/`"` 时引号内翻倍
+        let d = dev("SSDP", 0, "1.2.3.4", "Cam, \"pro\"", "SN,9");
+        assert_eq!(
+            render_row(&d, OutputFormat::Csv, false, false),
+            "\"SSDP\",\"0\",\"1.2.3.4\",\"Cam, \"\"pro\"\"\",\"SN,9\""
         );
     }
 
@@ -217,7 +229,7 @@ mod tests {
         let lines = batch_lines(&t, OutputFormat::Csv, false, false);
         assert_eq!(lines.len(), 3); // header + 2
         assert_eq!(lines[0], "protocol,version,ip,type,serial");
-        assert_eq!(lines[1], "SSDP,0,1.2.3.4,X,A");
-        assert_eq!(lines[2], "Lantronix,0,5.6.7.8,Y,B");
+        assert_eq!(lines[1], "\"SSDP\",\"0\",\"1.2.3.4\",\"X\",\"A\"");
+        assert_eq!(lines[2], "\"Lantronix\",\"0\",\"5.6.7.8\",\"Y\",\"B\"");
     }
 }

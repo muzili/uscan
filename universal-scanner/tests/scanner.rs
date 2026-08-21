@@ -77,7 +77,7 @@ async fn ssdp_full_chain_via_multicast() {
             // 6. stop 必须 1s 内完成（select! 取消路径）
             let t = std::time::Instant::now();
             scanner.stop().await.unwrap();
-            assert!(t.elapsed().as_secs() < 1);
+            assert!(t.elapsed() < std::time::Duration::from_secs(1));
         }
         None => panic!("SSDP full-chain: no device event received within 3s"),
     }
