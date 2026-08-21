@@ -62,4 +62,19 @@ mod tests {
     fn rejects_short_frame() {
         assert!(frame::parse(&[0u8; 41]).is_none());
     }
+
+    #[tokio::test]
+    async fn fixture_is_garp() {
+        let data = tokio::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/Arp.selftest"
+        ))
+        .await
+        .unwrap();
+        assert_eq!(data.len(), 42);
+        let p = frame::parse(&data).unwrap();
+        assert!(frame::is_garp(&p));
+        assert_eq!(p.sender_ip.to_string(), "192.168.1.50");
+        assert_eq!(p.src_mac, [0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
+    }
 }
