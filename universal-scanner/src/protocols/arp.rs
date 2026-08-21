@@ -111,7 +111,16 @@ impl ScanEngine for Arp {
         let reporter = ctx.reporter.clone();
         let handle = tokio::spawn(async move {
             while let Some(frame_bytes) = rx.recv().await {
-                for dev in filter_local(arp_parse(&frame_bytes), &local_ips) {
+                for mut dev in filter_local(arp_parse(&frame_bytes), &local_ips) {
+                    // OUI 厂家标注：追加到 serial（"aa:bb:.. (Vendor)"）；
+                    // 无系统 oui.txt（ieee-data 包）时保持原样
+                    if dev.protocol == "ARP" {
+                        if let Some(p) = frame::parse(&frame_bytes) {
+                            if let Some(vendor) = crate::oui::lookup(p.src_mac) {
+                                dev.serial.push_str(&format!(" ({vendor})"));
+                            }
+                        }
+                    }
                     let _ = reporter.send(dev);
                 }
             }

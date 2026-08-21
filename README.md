@@ -20,6 +20,8 @@ cargo build --release
 ```
 
 **系统依赖：** Linux 需 **libpcap**（`libpcap-dev` + `pkg-config`）；macOS 自带 libpcap。
+可选：**ieee-data**（`/usr/share/misc/oui.txt`）——安装后 ARP 设备的 serial 会追加 MAC 厂家标注
+（`84:7b:57:xx:xx:xx (TP-Link Systems Inc.)`）；未安装则不追加，行为不变。
 Rust ≥ 1.75（edition 2021，MSRV 1.75）。
 
 ```bash
