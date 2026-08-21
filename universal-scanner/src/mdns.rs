@@ -519,12 +519,13 @@ pub fn parse_dns(data: &[u8]) -> crate::Result<DnsParse> {
     // usize 求和防 u16 溢出（构造包 an/ns/ar 全大时 debug 构建不得 panic，release 不得回绕）。
     let total = an as usize + ns as usize + ar as usize;
     let mut answers = Vec::new();
-    let mut budget = 16u32;
+    // C# readString 的 maxCallBack=16 是默认参数（按值）→ **每个名字独立额度**；
+    // 不得整个包共享（多记录正常压缩应答会累计超限被误丢）。
     for _ in 0..total {
         if pos >= data.len() {
             break;
         }
-        let (name, np) = read_name(data, pos, &mut budget)?;
+        let (name, np) = read_name(data, pos, &mut 16u32)?;
         pos = np;
         let rrtype = rd16(data, &mut pos)?;
         let _class = rd16(data, &mut pos)?;
@@ -554,7 +555,7 @@ pub fn parse_dns(data: &[u8]) -> crate::Result<DnsParse> {
                 MdnsData::AAAA(ip.into())
             }
             12 => {
-                let (n, _) = read_name(data, pos, &mut budget)?;
+                let (n, _) = read_name(data, pos, &mut 16u32)?;
                 MdnsData::Ptr(n)
             }
             16 => MdnsData::Txt(parse_txt(data, &mut pos, rdlen as u16)),
@@ -658,6 +659,36 @@ mod tests {
         v.extend_from_slice(&(rdata.len() as u16).to_be_bytes());
         v.extend_from_slice(rdata);
         v
+    }
+
+    #[test]
+    fn per_name_redirect_budget_not_shared_across_packet() {
+        // 回归：C# readString maxCallBack=16 为每名字独立额度（默认参数按值）。
+        // 20 条 PTR 应答、每条名字+rdata 各 1 次指针跳转（单名字 ≤16），
+        // 全包累计 40 次跳转 >16 —— 不得因共享 budget 误丢整个包。
+        let mut p = vec![0u8; 12];
+        p[4..6].copy_from_slice(&1u16.to_be_bytes()); // qd=1
+        p[6..8].copy_from_slice(&20u16.to_be_bytes()); // an=20
+        let base = p.len(); // 基准名（问题段）位于 offset 12
+        p.extend_from_slice(&encode_name("a.local"));
+        p.extend_from_slice(&12u16.to_be_bytes()); // 问题 type PTR
+        p.extend_from_slice(&1u16.to_be_bytes()); // 问题 class IN
+        let ptr = [0xC0, base as u8];
+        for _ in 0..20 {
+            let mut v = ptr.to_vec(); // 名字 = 指针（1 次跳转）
+            v.extend_from_slice(&12u16.to_be_bytes()); // PTR
+            v.extend_from_slice(&1u16.to_be_bytes()); // class
+            v.extend_from_slice(&0u32.to_be_bytes()); // ttl
+            v.extend_from_slice(&2u16.to_be_bytes()); // rdlen
+            v.extend_from_slice(&ptr); // rdata = 指针（再 1 次跳转）
+            p.extend_from_slice(&v);
+        }
+        let answers = parse_dns(&p).unwrap().answers;
+        assert_eq!(answers.len(), 20);
+        assert!(answers.iter().all(|a| a.name == "a.local"));
+        assert!(answers
+            .iter()
+            .all(|a| matches!(&a.data, MdnsData::Ptr(n) if n == "a.local")));
     }
 
     #[test]
