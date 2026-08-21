@@ -63,7 +63,7 @@ impl Dahua2 {
         let logger = ctx.logger.clone();
         let cancel = ctx.cancel.clone();
         let task_id = ctx.task_id;
-        tokio::spawn(crate::netscan::netscan(
+        let handle = tokio::spawn(crate::netscan::netscan(
             socks,
             logger,
             cancel,
@@ -72,6 +72,8 @@ impl Dahua2 {
             probe.to_vec(),
             PORT,
         ));
+        // 句柄登记进 ctx.sweeps：Scanner::stop() 取消后 join，避免悬空任务
+        ctx.sweeps.lock().unwrap().push(handle);
     }
 
     /// 测试用：当前 sweep 的取消令牌（验证 scan 接线与"取消上一轮"语义）。
@@ -287,6 +289,7 @@ mod tests {
             pcap: None,
             cancel: CancellationToken::new(),
             task_id: 4,
+            sweeps: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 

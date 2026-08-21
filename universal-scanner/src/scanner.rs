@@ -19,6 +19,9 @@ use tokio_util::sync::CancellationToken;
 
 pub struct Scanner {
     config: Arc<Config>,
+    /// name 过滤（小写）；start() 每次按它从注册表重建**全新**引擎实例，
+    /// 避免重复 listen 累积 socket（引擎内部状态不自清）。
+    filter: Option<Vec<String>>,
     entries: Vec<(u16, Arc<dyn ScanEngine>)>, // (registry id, engine)
     broker: Arc<MdnsBroker>,
     logger: Arc<Logger>,
@@ -51,35 +54,15 @@ impl Scanner {
             Some(p) => Some(Arc::new(PcapWriter::new(&p)?)),
             None => None,
         };
-        // T17 增量表；T43 后恰 27 项；id 作 task_id 时转 u32
-        let all: Vec<(u16, Arc<dyn ScanEngine>)> = protocols::registry();
-        let entries = match protocols {
-            None => all,
-            Some(names) => {
-                let wanted: Vec<String> = names.iter().map(|s| s.to_ascii_lowercase()).collect();
-                let known: Vec<String> = all
-                    .iter()
-                    .map(|(_, e)| e.name().to_ascii_lowercase())
-                    .collect();
-                for w in &wanted {
-                    if !known.contains(w) {
-                        return Err(Error::Config(format!(
-                            "unknown protocol: {}; available: {}",
-                            w,
-                            known.to_vec().join(", ")
-                        )));
-                    }
-                }
-                all.into_iter()
-                    .filter(|(_, e)| wanted.contains(&e.name().to_ascii_lowercase()))
-                    .collect()
-            }
-        };
+        let filter: Option<Vec<String>> =
+            protocols.map(|names| names.iter().map(|s| s.to_ascii_lowercase()).collect());
+        let entries = Self::select_entries(filter.as_deref())?;
         let ports = Arc::new(Mutex::new(PortProvider::new()));
         let config = Arc::new(config);
         Ok((
             Self {
                 config,
+                filter,
                 entries,
                 broker,
                 logger,
@@ -92,6 +75,33 @@ impl Scanner {
             },
             rx,
         ))
+    }
+
+    /// 注册表按 name（小写）过滤；拼错 → Err 列可选值。T43 后全量 27 项。
+    fn select_entries(filter: Option<&[String]>) -> crate::Result<Vec<(u16, Arc<dyn ScanEngine>)>> {
+        let all: Vec<(u16, Arc<dyn ScanEngine>)> = protocols::registry();
+        match filter {
+            None => Ok(all),
+            Some(wanted) => {
+                let known: Vec<String> = all
+                    .iter()
+                    .map(|(_, e)| e.name().to_ascii_lowercase())
+                    .collect();
+                for w in wanted {
+                    if !known.contains(w) {
+                        return Err(Error::Config(format!(
+                            "unknown protocol: {}; available: {}",
+                            w,
+                            known.join(", ")
+                        )));
+                    }
+                }
+                Ok(all
+                    .into_iter()
+                    .filter(|(_, e)| wanted.contains(&e.name().to_ascii_lowercase()))
+                    .collect())
+            }
+        }
     }
 
     /// 已选中引擎数量（测试/CLI 用）。
@@ -112,11 +122,18 @@ impl Scanner {
     }
 
     /// 绑定接口 socket 并 spawn 接收任务；立即返回（long task 在引擎内部 spawn，可取消）。
+    /// 可重复调用：每次重建全新 cancel/broker/端口池/引擎实例（旧任务须先经 stop() 终止）。
     pub async fn start(&mut self) -> crate::Result<()> {
         let ifaces = iface::active_interfaces();
         if ifaces.is_empty() {
             return Err(Error::NoInterface);
         }
+        // 重新可启动：CancellationToken 不可复位 → 每次 start 换新；
+        // broker 持有构造时的 cancel，须一并重建（引擎 listen 会向新 broker 重新注册域名）。
+        self.cancel = CancellationToken::new();
+        self.broker = MdnsBroker::new(Arc::clone(&self.logger), self.cancel.clone());
+        self.ports = Arc::new(Mutex::new(PortProvider::new()));
+        self.entries = Self::select_entries(self.filter.as_deref())?;
         let nic_ips: Vec<Ipv4Addr> = ifaces.iter().flat_map(|i| i.ipv4_addrs()).collect();
         // C# reserveUDP(getUsedPort())：引擎启动前预占固定端口
         for (_, e) in &self.entries {
@@ -144,6 +161,7 @@ impl Scanner {
                 pcap: self.pcap.clone(),
                 cancel: self.cancel.clone(),
                 task_id: *id as u32, // 注册表 ID 作任务号（broker=0）
+                sweeps: Arc::new(Mutex::new(Vec::new())),
             });
             handles.extend(e.listen(Arc::clone(&ctx))?);
             self.ctxs.push(ctx);
@@ -161,11 +179,17 @@ impl Scanner {
         Ok(())
     }
 
-    /// 取消所有任务并 join 接收线程（recv_loop 经 select! 响应 cancel）。
+    /// 取消所有任务并 join 接收线程与 sweep 长任务（recv_loop 经 select! 响应 cancel）。
     pub async fn stop(&mut self) -> crate::Result<()> {
         self.cancel.cancel();
         for h in self.handles.drain(..) {
             let _ = h.await;
+        }
+        for ctx in &self.ctxs {
+            let sweeps: Vec<_> = ctx.sweeps.lock().unwrap().drain(..).collect();
+            for h in sweeps {
+                let _ = h.await;
+            }
         }
         Ok(())
     }

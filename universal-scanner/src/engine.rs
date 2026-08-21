@@ -34,6 +34,9 @@ pub struct EngineContext {
     pub pcap: Option<Arc<PcapWriter>>,
     pub cancel: CancellationToken,
     pub task_id: u32, // 本引擎日志任务号（C# 线程号语义）
+    /// scan() 内部 spawn 的长任务（netscan/Arecont 多轮 sweep）句柄；
+    /// Scanner::stop() 取消后 join，避免悬空任务。
+    pub sweeps: Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>,
 }
 
 impl EngineContext {

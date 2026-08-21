@@ -130,6 +130,7 @@ mod tests {
             pcap: None,
             cancel: tokio_util::sync::CancellationToken::new(),
             task_id: 0,
+            sweeps: Arc::new(std::sync::Mutex::new(Vec::new())),
         });
         (ctx, rx)
     }
