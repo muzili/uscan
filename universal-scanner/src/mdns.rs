@@ -92,30 +92,41 @@ impl MdnsBroker {
         task_id: u32,
     ) -> crate::Result<Vec<JoinHandle<()>>> {
         let mut handles = Vec::new();
-        // 组播 socket
-        let (msock, _msync) = crate::net::udp_bind_multicast(
+        // 组播 socket（5353 被外部占用时降级跳过，不让整次扫描致命失败）
+        let msock = match crate::net::udp_bind_multicast(
             MDNS_GROUP,
             MDNS_PORT,
             iface_ips,
             &self.logger,
             task_id,
-        )?;
-        let msock = Arc::new(msock);
-        let ctx_self = Arc::clone(self);
-        let mctx = msock.clone();
-        handles.push(tokio::spawn(async move {
-            let mut buf = vec![0u8; 65535];
-            loop {
-                tokio::select! {
-                    _ = ctx_self.cancel.cancelled() => break,
-                    res = mctx.recv_from(&mut buf) => {
-                        if let Ok((n, _from)) = res {
-                            ctx_self.on_packet(&buf[..n]);
+        ) {
+            Ok((msock, _msync)) => Some(msock),
+            Err(e) => {
+                self.logger.warn(
+                    task_id,
+                    &format!("mDNS listen: multicast bind {MDNS_PORT} failed: {e} (degrading)"),
+                );
+                None
+            }
+        };
+        if let Some(msock) = msock {
+            let msock = Arc::new(msock);
+            let ctx_self = Arc::clone(self);
+            let mctx = msock.clone();
+            handles.push(tokio::spawn(async move {
+                let mut buf = vec![0u8; 65535];
+                loop {
+                    tokio::select! {
+                        _ = ctx_self.cancel.cancelled() => break,
+                        res = mctx.recv_from(&mut buf) => {
+                            if let Ok((n, _from)) = res {
+                                ctx_self.on_packet(&buf[..n]);
+                            }
                         }
                     }
                 }
-            }
-        }));
+            }));
+        }
         // 各网卡 socket（C# listenUdpInterfaces；接收同样喂 on_packet）
         let mut socks = self.send_sockets.lock().unwrap();
         for ip in iface_ips {

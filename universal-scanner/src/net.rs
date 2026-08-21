@@ -27,6 +27,8 @@ fn probe_port_in_use(port: u16) -> bool {
 
 /// C# listenUdpGlobal：固定端口被占时 port_sharing=true → warn 并带 REUSEADDR 继续；
 /// false → warn 并放弃（返回 Ok(None)）。所有 socket 一律 SO_REUSEADDR（C# 绑定前无条件设置）。
+/// 注：若端口被**无** SO_REUSEADDR 的外部 socket 占用，REUSEADDR 也绑定失败；此时降级为
+/// 跳过该 global socket（warn + Ok(None)），而非让整次扫描致命失败（与 ARP 降级一致）。
 pub fn udp_bind_global(
     port: u16,
     port_sharing: bool,
@@ -47,8 +49,17 @@ pub fn udp_bind_global(
         );
     }
     let sock = make_udp();
-    sock.set_reuse_address(true)?;
-    sock.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)).into())?;
+    let _ = sock.set_reuse_address(true);
+    match sock.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)).into()) {
+        Ok(()) => {}
+        Err(e) => {
+            logger.warn(
+                task_id,
+                &format!("port {port} bind failed: {e}; skipping global socket"),
+            );
+            return Ok(None);
+        }
+    }
     sock.set_broadcast(true)?;
     Ok(Some(to_pair(sock)?))
 }
